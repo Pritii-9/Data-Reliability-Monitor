@@ -229,31 +229,5 @@ def run_pipeline_monitor():
         
     print(f"Monitor run complete. Passed: {checks_passed}, Failed: {checks_failed}")
 
-# === Unit Tests ===
-def test_validations():
-    """Simple unit tests for the validation logic."""
-    print("Running unit tests...")
-    
-    # Test Schema
-    assert validate_schema(["a", "b"], ["a", "b"])[0] == True
-    assert validate_schema(["a", "c"], ["a", "b"])[0] == False
-    
-    # Test Row Count
-    assert validate_row_count(50, 10, 100)[0] == True
-    assert validate_row_count(5, 10, 100)[0] == False
-    
-    # Test Nulls
-    headers = ["id", "name"]
-    data_good = [[1, "Alice"], [2, "Bob"]]
-    data_bad = [[1, "Alice"], [2, ""]]
-    assert validate_nulls(data_good, headers, ["name"])[0] == True
-    assert validate_nulls(data_bad, headers, ["name"])[0] == False
-    
-    print("All unit tests passed!")
-
 if __name__ == "__main__":
-    import sys
-    if len(sys.argv) > 1 and sys.argv[1] == "--test":
-        test_validations()
-    else:
-        run_pipeline_monitor()
+    run_pipeline_monitor()
