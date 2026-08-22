@@ -30,7 +30,9 @@ def check_file_arrival(files_list, expected_date_str):
     """Check if a file with the expected date string exists in the S3 bucket and return the newest."""
     matching_files = []
     for file in files_list:
-        if expected_date_str in file['Key'] and file['Key'].endswith('.csv') and 'backup' not in file['Key']:
+        key = file['Key']
+        # Ignore files that have already been moved to processed or quarantine folders
+        if expected_date_str in key and key.endswith('.csv') and 'backup' not in key and not key.startswith('processed/') and not key.startswith('quarantine/'):
             matching_files.append(file)
             
     if matching_files:
@@ -183,6 +185,21 @@ def run_pipeline_monitor():
         
         run_record.status = "SUCCESS" if checks_failed == 0 else "FAILURE"
         
+        # Move the file to Processed or Quarantine folders to prevent reprocessing
+        try:
+            folder = "processed" if run_record.status == "SUCCESS" else "quarantine"
+            new_key = f"{folder}/{file_key}"
+            
+            s3_client.copy_object(
+                CopySource={'Bucket': S3_BUCKET_NAME, 'Key': file_key},
+                Bucket=S3_BUCKET_NAME,
+                Key=new_key
+            )
+            s3_client.delete_object(Bucket=S3_BUCKET_NAME, Key=file_key)
+            print(f"Archived file to {new_key}")
+        except Exception as archive_error:
+            print(f"Failed to archive file {file_key}: {archive_error}")
+            
     except Exception as e:
         print(f"Pipeline monitor aborted early: {e}")
         run_record.status = "FAILURE"
