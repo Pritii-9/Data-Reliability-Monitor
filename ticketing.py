@@ -1,0 +1,52 @@
+from database import SessionLocal, Ticket
+from alerting import send_alert
+from datetime import datetime
+
+def create_ticket(title, description, severity="LOW"):
+    """
+    Creates a new incident ticket in the database and triggers an email alert.
+    """
+    session = SessionLocal()
+    try:
+        new_ticket = Ticket(
+            title=title,
+            description=description,
+            severity=severity,
+            status="OPEN"
+        )
+        session.add(new_ticket)
+        session.commit()
+        session.refresh(new_ticket)
+        
+        # Trigger alert
+        send_alert(title, description, severity, new_ticket.created_at)
+        
+        return new_ticket
+    except Exception as e:
+        session.rollback()
+        print(f"Error creating ticket: {e}")
+        return None
+    finally:
+        session.close()
+
+def resolve_ticket(ticket_id):
+    """
+    Marks a ticket as resolved.
+    """
+    session = SessionLocal()
+    try:
+        ticket = session.query(Ticket).filter(Ticket.id == ticket_id).first()
+        if ticket:
+            ticket.status = "RESOLVED"
+            ticket.resolved_at = datetime.utcnow()
+            session.commit()
+            print(f"Ticket {ticket_id} resolved.")
+            return True
+        print(f"Ticket {ticket_id} not found.")
+        return False
+    except Exception as e:
+        session.rollback()
+        print(f"Error resolving ticket: {e}")
+        return False
+    finally:
+        session.close()
