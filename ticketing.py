@@ -1,6 +1,7 @@
 from database import SessionLocal, Ticket
 from alerting import send_alert
 from datetime import datetime
+import os
 
 def create_ticket(title, description, severity="LOW"):
     """
@@ -18,8 +19,11 @@ def create_ticket(title, description, severity="LOW"):
         session.commit()
         session.refresh(new_ticket)
         
-        # Trigger alert
-        send_alert(title, description, severity, new_ticket.created_at)
+        # Trigger alert only if it's a manual run
+        if os.getenv("MANUAL_RUN") == "true":
+            send_alert(title, description, severity, new_ticket.created_at)
+        else:
+            print("Skipping email alert (background run).")
         
         return new_ticket
     except Exception as e:

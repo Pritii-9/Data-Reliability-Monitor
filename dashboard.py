@@ -5,12 +5,16 @@ from sqlalchemy import create_engine
 from dotenv import load_dotenv
 from ticketing import resolve_ticket
 import altair as alt
-import boto3
 from datetime import datetime
 import subprocess
 import sys
+from supabase import create_client, Client
 
 load_dotenv()
+
+SUPABASE_URL = os.getenv("SUPABASE_URL")
+SUPABASE_KEY = os.getenv("SUPABASE_SECRET_KEY")
+supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 # Setup Database Connection
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./monitor.db")
@@ -133,24 +137,25 @@ with st.sidebar:
     
     uploaded_file = st.file_uploader("Upload custom CSV", type=['csv'])
     if uploaded_file is not None:
-        if st.button("📤 Upload to S3 Bucket", use_container_width=True):
+        if st.button("📤 Upload to Cloud Storage", use_container_width=True):
             try:
-                s3_client = boto3.client('s3',
-                         endpoint_url=os.getenv('S3_ENDPOINT_URL', 'http://localhost:9000'),
-                         aws_access_key_id=os.getenv('AWS_ACCESS_KEY_ID', 'minioadmin'),
-                         aws_secret_access_key=os.getenv('AWS_SECRET_ACCESS_KEY', 'minioadmin'),
-                         region_name=os.getenv('AWS_DEFAULT_REGION', 'us-east-1'))
-                
                 bucket_name = os.getenv('S3_BUCKET_NAME', 'data-pipeline-bucket')
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
                 file_key = f"daily_users_{timestamp}_manual.csv"
+                file_bytes = uploaded_file.getvalue()
                 
-                s3_client.upload_fileobj(uploaded_file, bucket_name, file_key)
+                supabase.storage.from_(bucket_name).upload(
+                    file=file_bytes,
+                    path=file_key,
+                    file_options={"content-type": "text/csv"}
+                )
                 
-                st.info(f"File pushed to S3: `{file_key}`. Triggering audit...")
+                st.info(f"File pushed to Supabase Cloud: `{file_key}`. Triggering audit...")
                 
                 # Instantly run the monitor so the scheduler doesn't overwrite it
-                subprocess.run([sys.executable, "pipeline_monitor.py"])
+                env = os.environ.copy()
+                env["MANUAL_RUN"] = "true"
+                subprocess.run([sys.executable, "pipeline_monitor.py"], env=env)
                 
                 st.success("Audit complete! Check the Incident Queue and Audit Logs tabs.")
             except Exception as e:

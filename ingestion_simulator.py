@@ -2,42 +2,29 @@ import os
 import csv
 import random
 import time
-import boto3
 from datetime import datetime
 from dotenv import load_dotenv
-from botocore.exceptions import ClientError
+from supabase import create_client, Client
 
 # Load environment variables
 load_dotenv()
 
-# S3 Configuration
-S3_BUCKET_NAME = os.getenv("S3_BUCKET_NAME", "data-pipeline-bucket")
-S3_ENDPOINT_URL = os.getenv("S3_ENDPOINT_URL") # Useful for MinIO
-AWS_ACCESS_KEY_ID = os.getenv("AWS_ACCESS_KEY_ID")
-AWS_SECRET_ACCESS_KEY = os.getenv("AWS_SECRET_ACCESS_KEY")
-AWS_REGION = os.getenv("AWS_DEFAULT_REGION", "us-east-1")
-
-# Initialize S3 Client
-s3_client = boto3.client(
-    's3',
-    endpoint_url=S3_ENDPOINT_URL,
-    aws_access_key_id=AWS_ACCESS_KEY_ID,
-    aws_secret_access_key=AWS_SECRET_ACCESS_KEY,
-    region_name=AWS_REGION
-)
+# Supabase Configuration
+SUPABASE_URL = os.getenv("SUPABASE_URL")
+SUPABASE_KEY = os.getenv("SUPABASE_SECRET_KEY")
+supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+BUCKET_NAME = os.getenv("S3_BUCKET_NAME", "data-pipeline-bucket")
 
 def ensure_bucket_exists():
-    """Ensure the target S3 bucket exists (creates it in MinIO if missing)."""
+    """Ensure the target bucket exists in Supabase."""
     try:
-        s3_client.head_bucket(Bucket=S3_BUCKET_NAME)
-    except ClientError as e:
-        error_code = e.response['Error']['Code']
-        if error_code == '404':
-            print(f"Bucket {S3_BUCKET_NAME} does not exist. Creating it...")
-            s3_client.create_bucket(Bucket=S3_BUCKET_NAME)
-            print(f"Bucket {S3_BUCKET_NAME} created successfully.")
-        else:
-            print(f"Error checking bucket: {e}")
+        buckets = supabase.storage.list_buckets()
+        if BUCKET_NAME not in [b.name for b in buckets]:
+            print(f"Bucket {BUCKET_NAME} does not exist. Creating it...")
+            supabase.storage.create_bucket(BUCKET_NAME, options={"public": False})
+            print(f"Bucket {BUCKET_NAME} created successfully.")
+    except Exception as e:
+        print(f"Error checking/creating bucket: {e}")
 
 def generate_mock_data(scenario="clean"):
     """
@@ -84,17 +71,17 @@ def generate_mock_data(scenario="clean"):
             
     return headers, data
 
-def upload_to_s3(filename, content_string):
-    """Uploads a string content as a file to S3."""
+def upload_to_storage(filename, content_string):
+    """Uploads a string content as a file to Supabase Storage."""
     try:
-        s3_client.put_object(
-            Bucket=S3_BUCKET_NAME,
-            Key=filename,
-            Body=content_string.encode('utf-8')
+        supabase.storage.from_(BUCKET_NAME).upload(
+            file=content_string.encode('utf-8'),
+            path=filename,
+            file_options={"content-type": "text/csv"}
         )
-        print(f"Successfully uploaded {filename} to S3://{S3_BUCKET_NAME}")
+        print(f"Successfully uploaded {filename} to Supabase Storage")
     except Exception as e:
-        print(f"Failed to upload to S3: {e}")
+        print(f"Failed to upload to Supabase: {e}")
 
 def run_simulation():
     """Runs a single iteration of the simulation."""
@@ -126,7 +113,7 @@ def run_simulation():
     if scenario == "wrong_naming":
         filename = f"backup_data_{timestamp}.csv"
         
-    upload_to_s3(filename, csv_content)
+    upload_to_storage(filename, csv_content)
 
 if __name__ == "__main__":
     print("Starting ingestion simulator...")

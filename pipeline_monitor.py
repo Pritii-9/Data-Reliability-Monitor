@@ -1,44 +1,35 @@
 import os
 import io
 import csv
-import boto3
 from datetime import datetime, date
 from collections import Counter
 from database import SessionLocal, PipelineRun, CheckResult
 from ticketing import create_ticket
 from dotenv import load_dotenv
+from supabase import create_client, Client
 
 load_dotenv()
 
-S3_BUCKET_NAME = os.getenv("S3_BUCKET_NAME", "data-pipeline-bucket")
-S3_ENDPOINT_URL = os.getenv("S3_ENDPOINT_URL")
-AWS_ACCESS_KEY_ID = os.getenv("AWS_ACCESS_KEY_ID")
-AWS_SECRET_ACCESS_KEY = os.getenv("AWS_SECRET_ACCESS_KEY")
-AWS_REGION = os.getenv("AWS_DEFAULT_REGION", "us-east-1")
-
-s3_client = boto3.client(
-    's3',
-    endpoint_url=S3_ENDPOINT_URL,
-    aws_access_key_id=AWS_ACCESS_KEY_ID,
-    aws_secret_access_key=AWS_SECRET_ACCESS_KEY,
-    region_name=AWS_REGION
-)
+SUPABASE_URL = os.getenv("SUPABASE_URL")
+SUPABASE_KEY = os.getenv("SUPABASE_SECRET_KEY")
+supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+BUCKET_NAME = os.getenv("S3_BUCKET_NAME", "data-pipeline-bucket")
 
 # === Validation Logic (Unit Testable) ===
 
 def check_file_arrival(files_list, expected_date_str):
-    """Check if a file with the expected date string exists in the S3 bucket and return the newest."""
+    """Check if a file with the expected date string exists in Supabase Storage and return the newest."""
     matching_files = []
     for file in files_list:
-        key = file['Key']
+        key = file.get('name', '')
         # Ignore files that have already been moved to processed or quarantine folders
         if expected_date_str in key and key.endswith('.csv') and 'backup' not in key and not key.startswith('processed/') and not key.startswith('quarantine/'):
             matching_files.append(file)
             
     if matching_files:
-        # Sort by LastModified (newest first)
-        matching_files.sort(key=lambda x: x.get('LastModified', datetime.min), reverse=True)
-        return True, matching_files[0]['Key']
+        # Sort by created_at (newest first)
+        matching_files.sort(key=lambda x: x.get('created_at', ''), reverse=True)
+        return True, matching_files[0]['name']
         
     return False, None
 
@@ -136,11 +127,10 @@ def run_pipeline_monitor():
         # 1. File Arrival Check
         today_str = datetime.now().strftime("%Y%m%d")
         try:
-            response = s3_client.list_objects_v2(Bucket=S3_BUCKET_NAME)
-            files = response.get('Contents', [])
+            files = supabase.storage.from_(BUCKET_NAME).list()
         except Exception as e:
             files = []
-            print(f"Error accessing S3: {e}")
+            print(f"Error accessing Supabase Storage: {e}")
             
         arrived, file_key = check_file_arrival(files, today_str)
         current_file_key = file_key if arrived else "None Found"
@@ -152,8 +142,12 @@ def run_pipeline_monitor():
             log_check("file_arrival", True, f"File {file_key} found.")
             
         # Download and read file
-        obj = s3_client.get_object(Bucket=S3_BUCKET_NAME, Key=file_key)
-        csv_string = obj['Body'].read().decode('utf-8')
+        try:
+            res = supabase.storage.from_(BUCKET_NAME).download(file_key)
+            csv_string = res.decode('utf-8')
+        except Exception as e:
+            log_check("file_read", False, f"Failed to download {file_key}: {e}", "HIGH")
+            raise Exception("Critical failure: Cannot read file.")
         
         reader = csv.reader(io.StringIO(csv_string))
         rows = list(reader)
@@ -190,12 +184,7 @@ def run_pipeline_monitor():
             folder = "processed" if run_record.status == "SUCCESS" else "quarantine"
             new_key = f"{folder}/{file_key}"
             
-            s3_client.copy_object(
-                CopySource={'Bucket': S3_BUCKET_NAME, 'Key': file_key},
-                Bucket=S3_BUCKET_NAME,
-                Key=new_key
-            )
-            s3_client.delete_object(Bucket=S3_BUCKET_NAME, Key=file_key)
+            supabase.storage.from_(BUCKET_NAME).move(file_key, new_key)
             print(f"Archived file to {new_key}")
         except Exception as archive_error:
             print(f"Failed to archive file {file_key}: {archive_error}")
