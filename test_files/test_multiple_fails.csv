@@ -1,0 +1,12 @@
+user_id,email,signup_date,plan_type,total_spent
+1,test@example.com,2026-08-22,Basic,15.50
+2,user2@example.com,2026-08-22,Premium,99.99
+3,,2026-08-22,Basic,0.00
+4,user4@example.com,2026-08-22,Premium,45.00
+5,,2026-08-22,Premium,45.00
+1,test@example.com,2026-08-22,Basic,15.50
+6,user6@example.com,2026-08-22,Basic,10.00
+7,user7@example.com,2026-08-22,Basic,10.00
+8,user8@example.com,2026-08-22,Basic,10.00
+9,user9@example.com,2026-08-22,Basic,10.00
+10,user10@example.com,2026-08-22,Basic,10.00

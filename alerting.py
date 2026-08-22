@@ -35,8 +35,14 @@ def send_alert(ticket_title, description, severity, timestamp):
         color_map = {"HIGH": "#dc3545", "MEDIUM": "#fd7e14", "LOW": "#28a745"}
         header_color = color_map.get(severity, "#6c757d")
         
-        # Replace line breaks in description with HTML breaks
-        html_description = description.replace('\n', '<br>')
+        # Convert simple Markdown to beautiful HTML for the email
+        import re
+        html_description = description
+        html_description = re.sub(r'\*\*(.*?)\*\*', r'<strong style="color:#1e293b;">\1</strong>', html_description)
+        html_description = re.sub(r'(?<!\*)(\*[^\*]+\*)(?!\*)', lambda m: f'<em style="color:#64748b;">{m.group(1)[1:-1]}</em>', html_description)
+        html_description = re.sub(r'`(.*?)`', r'<code style="background-color:#f1f5f9;padding:2px 6px;border-radius:4px;color:#ef4444;font-size:13px;font-family:monospace;">\1</code>', html_description)
+        html_description = re.sub(r'### (.*?)\n', r'<h4 style="margin:15px 0 10px 0;color:#334155;border-bottom:1px solid #cbd5e1;padding-bottom:5px;">\1</h4>', html_description)
+        html_description = html_description.replace('\n', '<br>')
         
         html_body = f"""
         <html>

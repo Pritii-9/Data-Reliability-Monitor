@@ -104,22 +104,23 @@ def run_pipeline_monitor():
     
     checks_passed = 0
     checks_failed = 0
+    current_file_key = "Unknown"
+    failed_checks_list = []
     
     def log_check(name, passed, details, severity="MEDIUM"):
-        nonlocal checks_passed, checks_failed
+        nonlocal checks_passed, checks_failed, current_file_key, failed_checks_list
         if passed:
             checks_passed += 1
             status = "PASS"
         else:
             checks_failed += 1
             status = "FAIL"
-            # Create a ticket on failure
-            create_ticket(
-                title=f"Check Failed: {name}",
-                description=f"Pipeline Run ID: {run_record.id}\nDetails: {details}",
-                severity=severity
-            )
-            
+            # Collect failure for consolidated ticketing
+            failed_checks_list.append({
+                "name": name,
+                "details": details,
+                "severity": severity
+            })
         check = CheckResult(
             run_id=run_record.id,
             check_name=name,
@@ -140,6 +141,7 @@ def run_pipeline_monitor():
             print(f"Error accessing S3: {e}")
             
         arrived, file_key = check_file_arrival(files, today_str)
+        current_file_key = file_key if arrived else "None Found"
         
         if not arrived:
             log_check("file_arrival", False, f"Expected file for {today_str} not found.", "HIGH")
@@ -189,6 +191,33 @@ def run_pipeline_monitor():
         run_record.total_checks = checks_passed + checks_failed
         run_record.passed_checks = checks_passed
         run_record.failed_checks = checks_failed
+        
+        # Create consolidated ticket if any failures occurred
+        if failed_checks_list:
+            severity_rank = {"HIGH": 3, "MEDIUM": 2, "LOW": 1}
+            highest_sev = max(failed_checks_list, key=lambda x: severity_rank.get(x["severity"], 1))["severity"]
+            
+            if len(failed_checks_list) == 1:
+                ticket_title = f"Check Failed: {failed_checks_list[0]['name']}"
+            else:
+                ticket_title = f"Multiple Issues Detected ({len(failed_checks_list)} checks failed)"
+                
+            desc_lines = [
+                f"**File Name:** `{current_file_key}`",
+                f"**Pipeline Run ID:** `{run_record.id}`",
+                f"**Total Issues Found:** `{len(failed_checks_list)}`\n",
+                "### 📋 Issues Checklist\n"
+            ]
+            for failure in failed_checks_list:
+                desc_lines.append(f"- **[{failure['severity']}]** `{failure['name']}`")
+                desc_lines.append(f"  - **Details:** {failure['details']}")
+            
+            create_ticket(
+                title=ticket_title,
+                description="\n".join(desc_lines),
+                severity=highest_sev
+            )
+            
         session.commit()
         session.close()
         
