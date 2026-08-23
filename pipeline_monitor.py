@@ -232,11 +232,17 @@ def run_pipeline_monitor():
             else:
                 ticket_title = f"Multiple Issues Detected ({len(failed_checks_list)} checks failed)"
                 
+            # Generate AI Root Cause Analysis (RCA)
+            from ai_engine import generate_ai_root_cause_analysis
+            ai_rca = generate_ai_root_cause_analysis(failed_checks_list)
+
             desc_lines = [
                 f"**File Name:** `{current_file_key}`",
                 f"**Pipeline Run ID:** `{run_record.id}`",
                 f"**Total Issues Found:** `{len(failed_checks_list)}`\n",
-                "### 📋 Issues Checklist\n"
+                "### AI Root Cause Analysis",
+                f"{ai_rca}\n",
+                "### Issues Checklist\n"
             ]
             for failure in failed_checks_list:
                 desc_lines.append(f"- **[{failure['severity']}]** `{failure['name']}`")

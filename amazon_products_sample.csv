@@ -1,0 +1,11 @@
+product_id,product_name,category,price,rating,review_count,stock_quantity,seller_id,customer_id,order_date
+B08N5WRWNW,Echo Dot 5th Gen Smart Speaker with Alexa,Electronics > Smart Home,49.99,4.7,12450,350,AMZ_RETAIL_OFFICIAL,CUST_98210,2026-08-23
+B07PXG8872,Kindle Paperwhite 16GB Display with Built-in Light,Electronics > E-Readers,139.99,4.8,24100,120,AMZ_RETAIL_OFFICIAL,CUST_44120,2026-08-23
+B09B2W55SD,Fire TV Stick 4K Max Streaming Device Wi-Fi 6,Electronics > Media Streamers,59.99,4.6,8920,450,AMZ_RETAIL_OFFICIAL,CUST_11029,2026-08-22
+B0C7S7X512,Sony WH-1000XM5 Wireless Noise Canceling Headphones,Electronics > Audio,398.00,4.7,5120,85,SONY_AUDIO_DIRECT,CUST_77491,2026-08-22
+B08J5F3G18,Apple AirPods Pro 2nd Gen with MagSafe USB-C Case,Electronics > Audio,249.00,4.8,31000,200,APPLE_AUTHORIZATION,CUST_33910,2026-08-21
+B09G9FPHY6,Apple iPad 10th Gen 10.9-inch Liquid Retina Display,Electronics > Tablets,449.00,4.7,14300,95,APPLE_AUTHORIZATION,CUST_88204,2026-08-21
+B08KGZ6VGH,Logitech MX Master 3S Wireless Performance Mouse,Computers > Accessories,99.99,4.7,9800,310,LOGITECH_STORE,CUST_55102,2026-08-20
+B07W5JK781,Anker 65W GaN Fast Charger 3-Port USB-C,Electronics > Chargers,59.99,4.8,18900,500,ANKER_DIRECT_US,CUST_66289,2026-08-20
+B09V3HMKS3,Samsung Galaxy S23 Ultra 256GB Phantom Black,Electronics > Smartphones,1199.99,4.6,7400,60,SAMSUNG_MOBILE_US,CUST_99103,2026-08-19
+B0B1V48H6D,Instant Pot Duo 7-in-1 Electric Pressure Cooker 6Qt,Home & Kitchen > Small Appliances,89.95,4.7,42000,180,INSTANT_BRANDS_INC,CUST_22849,2026-08-19

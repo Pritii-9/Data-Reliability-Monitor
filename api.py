@@ -50,64 +50,29 @@ class AnalysisResponse(BaseModel):
     s3_storage_path: Optional[str] = None
 
 # --- AI ROOT CAUSE ANALYSIS ENGINE ---
-def generate_ai_root_cause_analysis(failed_checks: List[ValidationCheck], df_sample: pd.DataFrame) -> str:
-    """
-    Sends error context and data samples to an LLM for Automated Root Cause Analysis (RCA).
-    Supports LiteLLM/OpenAI/Gemini with an intelligent rule-based AI engine fallback.
-    """
-    error_summary = "\n".join([f"- {check.check_name}: {check.details}" for check in failed_checks])
-    sample_preview = df_sample.head(3).to_dict(orient="records")
-    
-    # Prompt structure for LLM
-    prompt = f"""
-    System: You are an expert Principal Data Reliability Engineer.
-    Incident Context:
-    The data pipeline failed validation with the following check errors:
-    {error_summary}
-    
-    Sample Data Preview:
-    {sample_preview}
-    
-    Task: Provide a concise (2-3 sentences), highly actionable Root Cause Analysis explaining why the pipeline failed and how the source data team can fix it.
-    """
-
-    # Check for LiteLLM / OpenAI API Key configuration
-    openai_api_key = os.getenv("OPENAI_API_KEY")
-    gemini_api_key = os.getenv("GEMINI_API_KEY")
-    
-    if openai_api_key:
-        try:
-            import openai
-            client = openai.OpenAI(api_key=openai_api_key)
-            response = client.chat.completions.create(
-                model="gpt-3.5-turbo",
-                messages=[{"role": "user", "content": prompt}],
-                max_tokens=150
-            )
-            return response.choices[0].message.content.strip()
-        except Exception as e:
-            print(f"Notice: OpenAI API call skipped ({e}). Falling back to heuristic AI engine.")
-            
-    # Fallback: Intelligent Heuristic AI RCA Engine
-    rca_bullets = []
-    for check in failed_checks:
-        if check.check_name == "schema_validation":
-            rca_bullets.append("Pipeline failed due to Schema Mismatch. Incoming dataset is missing expected core columns required by downstream models.")
-        elif check.check_name == "null_check":
-            rca_bullets.append("Pipeline failed due to Data Incompleteness. Critical identifier columns contain null or empty values.")
-        elif check.check_name == "type_check":
-            rca_bullets.append("Pipeline failed due to Type Corruption. Numerical or monetary fields contain non-numeric string characters.")
-        elif check.check_name == "duplicate_check":
-            rca_bullets.append("Pipeline failed due to Primary Key Collisions. Duplicate user or transaction IDs were detected in the ingestion batch.")
-        elif check.check_name == "row_count":
-            rca_bullets.append("Pipeline failed due to Volume Anomaly. Ingestion row count fell outside expected bounds.")
-
-    return " | ".join(rca_bullets) if rca_bullets else "Unspecified validation failure detected during batch ingestion."
+from ai_engine import generate_ai_root_cause_analysis, generate_file_ai_summary
 
 # --- API ENDPOINTS ---
 @app.get("/")
 async def root():
     return {"message": "Data Reliability Control Center API is active.", "docs": "/docs"}
+
+@app.post("/ai-summarize-file")
+async def ai_summarize_file(file: UploadFile = File(...)):
+    """
+    RAG-style AI Document & Data Intelligence endpoint.
+    Accepts PDF, CSV, or TXT files and returns structured Google Gemini AI Analysis
+    (Overview, Successes, Issues, Root Cause Action Plan).
+    """
+    filename = file.filename.lower()
+    if not (filename.endswith(".csv") or filename.endswith(".pdf") or filename.endswith(".txt")):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Unsupported format. Upload CSV, PDF, or TXT files."
+        )
+    contents = await file.read()
+    summary_result = generate_file_ai_summary(file.filename, contents)
+    return summary_result
 
 @app.post("/analyze-upload", response_model=AnalysisResponse)
 async def analyze_upload(file: UploadFile = File(...)):

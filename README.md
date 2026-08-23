@@ -40,7 +40,7 @@ An enterprise-grade, decoupled microservice platform designed for automated data
 ## 🛠️ Key Capabilities & Features
 
 * **⚡ Decoupled Backend Microservice**: High-throughput FastAPI API engine handling file ingestion, validation rule evaluation, and RCA payload generation.
-* **🤖 Automated AI Root Cause Analysis (RCA)**: Integrated LLM engine (`litellm`/`openai`) that diagnoses failed datasets and produces actionable troubleshooting steps for tier-1 support.
+* **🤖 Automated AI Root Cause Analysis (RCA)**: Integrated LLM engine supporting **Google AI Studio API Key (`GEMINI_API_KEY`)**, Gemini 2.5/1.5 Flash models, OpenAI fallback, and an intelligent rule-based heuristic engine for instant pipeline troubleshooting.
 * **🛡️ Data Observability & SLA Tracking**: Real-time monitoring of pass-rate compliance, pipeline latency, and Mean Time to Resolution (MTTR).
 * **🔍 Deep Multi-Field Audit Search**: Multi-field search across execution IDs, file names, cloud storage keys, check names, and error details.
 * **📖 Production Runbooks**: SOP documentation for common pipeline incidents (`missing-file`, `schema-mismatch`, `null-values`, `low-row-count`).

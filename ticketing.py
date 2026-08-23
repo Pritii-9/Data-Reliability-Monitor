@@ -54,3 +54,22 @@ def resolve_ticket(ticket_id):
         return False
     finally:
         session.close()
+
+def resolve_all_tickets():
+    """
+    Marks all currently open tickets as resolved in bulk.
+    """
+    session = SessionLocal()
+    try:
+        session.query(Ticket).filter(Ticket.status == "OPEN").update(
+            {Ticket.status: "RESOLVED", Ticket.resolved_at: datetime.utcnow()},
+            synchronize_session=False
+        )
+        session.commit()
+        return True
+    except Exception as e:
+        session.rollback()
+        print(f"Error resolving all tickets: {e}")
+        return False
+    finally:
+        session.close()

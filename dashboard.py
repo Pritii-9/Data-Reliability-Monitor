@@ -4,7 +4,7 @@ import pandas as pd
 import requests
 from sqlalchemy import create_engine, text
 from dotenv import load_dotenv
-from ticketing import resolve_ticket
+from ticketing import resolve_ticket, resolve_all_tickets
 from database import SessionLocal, PipelineRun, CheckResult
 import altair as alt
 from datetime import datetime
@@ -12,6 +12,10 @@ import subprocess
 import sys
 from supabase import create_client, Client
 from streamlit_option_menu import option_menu
+import importlib
+import ai_engine
+importlib.reload(ai_engine)
+from ai_engine import generate_file_ai_summary, generate_ai_root_cause_analysis
 
 load_dotenv()
 
@@ -70,9 +74,21 @@ def confirm_delete_dialog(run_id, storage_loc, file_name):
 
 st.set_page_config(page_title="Data Reliability Monitor", layout="wide", page_icon="📈")
 
-# --- CUSTOM CSS FOR PREMIUM ENTERPRISE LOOK ---
+# --- TAILWIND CSS V4 INTEGRATION & STYLING ENGINE ---
 st.markdown("""
+<script src="https://unpkg.com/@tailwindcss/browser@4"></script>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+<style type="text/tailwindcss">
+    @theme {
+        --color-brand-primary: #818cf8;
+        --color-brand-purple: #c084fc;
+        --color-brand-emerald: #4ade80;
+        --color-brand-rose: #f87171;
+        --color-dark-bg: #09090b;
+        --color-dark-card: #18181b;
+        --font-sans: 'Inter', system-ui, sans-serif;
+    }
+</style>
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
     
@@ -84,13 +100,13 @@ st.markdown("""
         background-color: #09090b;
     }
 
-    /* Rich Dark Sidebar Styling */
+    /* Dark Sidebar Styling */
     section[data-testid="stSidebar"] {
         background-color: #0c0c0e !important;
         border-right: 1px solid rgba(255, 255, 255, 0.06) !important;
     }
     
-    /* File Uploader Container Styling */
+    /* File Uploader Container */
     div[data-testid="stFileUploader"] {
         background-color: #141418 !important;
         border: 1px dashed rgba(129, 140, 248, 0.3) !important;
@@ -102,189 +118,136 @@ st.markdown("""
         border-color: #818cf8 !important;
     }
 
-    /* Gradient Title */
-    .gradient-text {
-        background: linear-gradient(90deg, #818cf8 0%, #c084fc 100%);
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
-        font-weight: 800;
-        letter-spacing: -0.02em;
-    }
-    
-    /* Modern Status Banners */
-    .status-banner {
-        padding: 18px 24px;
-        border-radius: 12px;
-        font-size: 16px;
-        font-weight: 600;
-        margin-bottom: 30px;
-        display: flex;
-        align-items: center;
-        gap: 12px;
-        letter-spacing: 0.02em;
-        backdrop-filter: blur(10px);
-    }
-    .status-healthy { 
-        background: rgba(34, 197, 94, 0.05);
-        border: 1px solid rgba(34, 197, 94, 0.2); 
-        color: #4ade80; 
-        box-shadow: 0 0 20px rgba(34, 197, 94, 0.05);
-    }
-    .status-degraded { 
-        background: rgba(239, 68, 68, 0.05);
-        border: 1px solid rgba(239, 68, 68, 0.2); 
-        color: #f87171; 
-        box-shadow: 0 0 20px rgba(239, 68, 68, 0.05);
-    }
-
-    /* Vector Icon Status Badges */
-    .badge-pass {
-        background-color: rgba(34, 197, 94, 0.12);
-        color: #4ade80;
-        border: 1px solid rgba(34, 197, 94, 0.3);
-        padding: 4px 10px;
-        border-radius: 6px;
-        font-size: 12px;
-        font-weight: 700;
-        letter-spacing: 0.05em;
-    }
-    .badge-fail {
-        background-color: rgba(239, 68, 68, 0.12);
-        color: #f87171;
-        border: 1px solid rgba(239, 68, 68, 0.3);
-        padding: 4px 10px;
-        border-radius: 6px;
-        font-size: 12px;
-        font-weight: 700;
-        letter-spacing: 0.05em;
-    }
-    
-    /* Glassmorphism Metric Cards with Hover */
-    .metric-card {
-        background: rgba(24, 24, 27, 0.6);
-        backdrop-filter: blur(12px);
-        -webkit-backdrop-filter: blur(12px);
-        border: 1px solid rgba(255, 255, 255, 0.05);
-        border-radius: 16px;
-        padding: 24px;
-        display: flex;
-        flex-direction: column;
-        justify-content: center;
-        box-shadow: 0 4px 20px -2px rgba(0, 0, 0, 0.1);
-        margin-bottom: 24px;
-        transition: transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
-    }
-    .metric-card:hover {
-        transform: translateY(-4px);
-        border-color: rgba(129, 140, 248, 0.3);
-        box-shadow: 0 10px 25px -5px rgba(129, 140, 248, 0.15);
-    }
-    .metric-label {
-        color: #a1a1aa;
-        font-size: 0.75rem;
-        font-weight: 700;
-        text-transform: uppercase;
-        letter-spacing: 0.1em;
-        margin-bottom: 8px;
-    }
-    .metric-value {
-        color: #f8fafc;
-        font-size: 2.25rem;
-        font-weight: 800;
-        line-height: 1.1;
-        letter-spacing: -0.02em;
-    }
-    
-    /* Typography Overrides */
-    h1, h2, h3 { color: #f8fafc !important; font-family: 'Inter', sans-serif !important; }
-    .subtitle { color: #a1a1aa; font-size: 1.1rem; margin-bottom: 35px; font-weight: 400; letter-spacing: 0.01em; }
-    
-    /* Enhanced Ticket Description */
-    .ticket-desc {
-        color: #f1f5f9;
-        font-size: 1.05rem;
-        line-height: 1.8;
-        background-color: #0f172a;
-        padding: 24px;
-        border-radius: 12px;
-        border-left: 4px solid #818cf8;
-        margin-bottom: 20px;
-        margin-top: 10px;
-        border-top: 1px solid rgba(255,255,255,0.02);
-        border-right: 1px solid rgba(255,255,255,0.02);
-        border-bottom: 1px solid rgba(255,255,255,0.02);
-        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
-    }
-    .ticket-desc code {
-        font-size: 0.9rem !important;
-        color: #f87171 !important;
-        background-color: rgba(248, 113, 113, 0.1) !important;
-        padding: 4px 8px !important;
-        border-radius: 4px;
-        border: 1px solid rgba(248, 113, 113, 0.2);
-    }
-    .ticket-desc ul {
-        margin-top: 15px;
-        padding-left: 20px;
-    }
-    .ticket-desc li {
-        margin-bottom: 12px;
-    }
-    
-    /* Expander styling for tickets */
+    /* Expander Header Styling */
     .streamlit-expanderHeader {
         background-color: #18181b !important;
-        border-radius: 8px !important;
-        border: 1px solid rgba(255,255,255,0.05) !important;
-        color: #e2e8f0 !important;
+        border-radius: 10px !important;
+        border: 1px solid rgba(255,255,255,0.06) !important;
+        color: #f8fafc !important;
         font-weight: 600 !important;
-        transition: background-color 0.2s ease;
     }
     .streamlit-expanderHeader:hover {
         background-color: #27272a !important;
+        border-color: rgba(129, 140, 248, 0.3) !important;
     }
     
+    /* Pixel-Perfect Equal Height Columns in Streamlit */
+    div[data-testid="stHorizontalBlock"] {
+        align-items: stretch !important;
+    }
+    div[data-testid="stHorizontalBlock"] > div[data-testid="stColumn"] {
+        display: flex !important;
+        flex-direction: column !important;
+    }
+    div[data-testid="stHorizontalBlock"] > div[data-testid="stColumn"] > div[data-testid="stVerticalBlock"] {
+        height: 100% !important;
+        display: flex !important;
+        flex-direction: column !important;
+        justify-content: space-between !important;
+    }
+
+    /* Sidebar High-Contrast Styling */
+    section[data-testid="stSidebar"] {
+        background-color: #09090b !important;
+        border-right: 1px solid rgba(255, 255, 255, 0.08) !important;
+    }
+    section[data-testid="stSidebar"] div[data-testid="stSidebarUserContent"] {
+        padding-top: 1.25rem !important;
+    }
+
     hr {
-        border-color: rgba(255,255,255,0.05) !important;
-        margin: 2.5rem 0 !important;
+        border-color: rgba(255,255,255,0.06) !important;
+        margin: 2rem 0 !important;
     }
 </style>
 """, unsafe_allow_html=True)
 
-# --- TOP HEADER NAVIGATION BAR ---
+# --- TOP HEADER NAVIGATION BAR (TAILWIND CSS V4) ---
 col_head, col_act = st.columns([3, 1])
 
 with col_head:
-    st.markdown('<h1 style="font-family: \'Inter\', sans-serif; font-size: 28px; margin-bottom: 2px;"><i class="fa-solid fa-shield-halved" style="color: #818cf8; margin-right: 12px;"></i><span class="gradient-text">Data Reliability Control Center</span></h1>', unsafe_allow_html=True)
-    st.markdown('<div class="subtitle" style="margin-bottom: 20px;">Continuous data quality observability, anomaly detection & automated incident management.</div>', unsafe_allow_html=True)
+    st.markdown("""
+    <div class="mb-4">
+        <h1 class="text-3xl font-extrabold tracking-tight text-white flex items-center gap-3">
+            <i class="fa-solid fa-shield-halved text-indigo-400"></i>
+            <span class="bg-gradient-to-r from-indigo-400 to-purple-400 bg-clip-text text-transparent">Data Reliability Control Center</span>
+        </h1>
+        <p class="text-sm text-zinc-400 mt-1">Continuous data quality observability, anomaly detection & automated incident management.</p>
+    </div>
+    """, unsafe_allow_html=True)
 
 with col_act:
-    st.markdown("<div style='margin-top: 5px;'></div>", unsafe_allow_html=True)
+    st.markdown("<div class='mt-1'></div>", unsafe_allow_html=True)
     if st.button("🔄 Refresh Data", use_container_width=True):
         st.cache_data.clear()
         st.rerun()
 
-# --- SIDEBAR: SYSTEM SERVICES & INGESTION LANDING ---
+# --- SIDEBAR: HIGH-CONTRAST ENTERPRISE DESIGN (TAILWIND CSS V4) ---
 with st.sidebar:
-    st.markdown("<h4 style='font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: #a1a1aa; margin-bottom: 12px;'><i class='fa-solid fa-server' style='color: #818cf8; margin-right: 8px;'></i> Microservice Infrastructure</h4>", unsafe_allow_html=True)
-    if check_fastapi_health():
-        st.markdown("<div style='background:rgba(34,197,94,0.08); border:1px solid rgba(34,197,94,0.2); padding:10px 14px; border-radius:8px; color:#4ade80; font-size:13px; font-weight:600;'><i class='fa-solid fa-circle-check'></i> API Engine: Active (8000)</div>", unsafe_allow_html=True)
-    else:
-        st.markdown("<div style='background:rgba(234,179,8,0.08); border:1px solid rgba(234,179,8,0.2); padding:10px 14px; border-radius:8px; color:#facc15; font-size:13px; font-weight:600;'><i class='fa-solid fa-triangle-exclamation'></i> API Engine: Offline</div>", unsafe_allow_html=True)
-        
-    st.markdown("<div style='margin-top: 25px;'></div>", unsafe_allow_html=True)
-    st.markdown("<h4 style='font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: #a1a1aa; margin-bottom: 12px;'><i class='fa-solid fa-cloud-arrow-up' style='color: #818cf8; margin-right: 8px;'></i> Batch Ingestion Zone</h4>", unsafe_allow_html=True)
-    st.markdown("<p style='font-size: 13px; color: #94a3b8; margin-bottom: 14px;'>Drop custom CSV datasets here to trigger real-time validation and cloud storage backup.</p>", unsafe_allow_html=True)
+    # 1. Brand Identity Header
+    st.markdown("""
+    <div class="mb-6 border-b border-zinc-800/80 pb-5">
+        <div class="flex items-center gap-3">
+            <div class="flex h-10 w-10 items-center justify-center rounded-xl bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 shadow-md">
+                <i class="fa-solid fa-shield-halved text-lg"></i>
+            </div>
+            <div>
+                <div class="text-sm font-bold text-white tracking-tight">Reliability Engine</div>
+                <div class="text-[11px] font-medium text-zinc-400">Enterprise Observability v2.4</div>
+            </div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
     
-    uploaded_file = st.file_uploader("Select Batch Dataset", type=['csv'])
+    # 2. System Status Card
+    st.markdown("""
+    <div class="rounded-2xl border border-zinc-800/80 bg-zinc-900/60 p-4 backdrop-blur-xl shadow-lg mb-5">
+        <div class="flex items-center justify-between text-[11px] font-bold uppercase tracking-wider text-zinc-400 mb-3">
+            <span>System Infrastructure</span>
+            <i class="fa-solid fa-server text-indigo-400"></i>
+        </div>
+    """, unsafe_allow_html=True)
+    
+    if check_fastapi_health():
+        st.markdown("""
+        <div class="flex items-center gap-2 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-xs font-semibold text-emerald-400 mb-2">
+            <span class="h-2 w-2 rounded-full bg-emerald-400 animate-pulse"></span>
+            <span>API Engine: Active (8000)</span>
+        </div>
+        """, unsafe_allow_html=True)
+    else:
+        st.markdown("""
+        <div class="flex items-center gap-2 rounded-xl border border-yellow-500/30 bg-yellow-500/10 px-3 py-2 text-xs font-semibold text-yellow-400 mb-2">
+            <span class="h-2 w-2 rounded-full bg-yellow-400"></span>
+            <span>API Engine: Offline</span>
+        </div>
+        """, unsafe_allow_html=True)
+
+    st.markdown("""
+        <div class="flex items-center gap-2 text-[11px] text-zinc-400 px-1 pt-1 border-t border-zinc-800/60">
+            <i class="fa-solid fa-database text-indigo-400 text-xs"></i> Storage: <span class="text-slate-200 font-mono">Supabase S3</span>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # 3. Batch Ingestion Drop Zone
+    st.markdown("""
+    <div class="rounded-2xl border border-zinc-800/80 bg-zinc-900/60 p-4 backdrop-blur-xl shadow-lg mb-3">
+        <div class="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-indigo-400 mb-1.5">
+            <i class="fa-solid fa-cloud-arrow-up"></i> Batch File Ingestion
+        </div>
+        <p class="text-xs text-zinc-400 leading-relaxed">Drop CSV, PDF, or log files to trigger cloud backup & AI quality audit.</p>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    uploaded_file = st.file_uploader("Select Batch Dataset", type=['csv', 'pdf', 'txt'], label_visibility="collapsed")
     if uploaded_file is not None:
-        st.markdown("<div style='margin-top: 10px;'></div>", unsafe_allow_html=True)
-        if st.button("Upload Dataset to Cloud", type="primary", use_container_width=True):
+        st.markdown("<div class='mt-2'></div>", unsafe_allow_html=True)
+        if st.button("Upload & Trigger Audit", type="primary", use_container_width=True):
             try:
                 bucket_name = os.getenv('S3_BUCKET_NAME', 'data-pipeline-bucket')
                 original_name = uploaded_file.name
                 
-                # Smart collision handling for landing zone upload
                 try:
                     root_files = supabase.storage.from_(bucket_name).list()
                     existing_names = [f.get('name', '') for f in root_files]
@@ -314,34 +277,21 @@ with st.sidebar:
                 
                 st.info(f"File pushed to Supabase Cloud: `{file_key}`. Triggering audit...")
                 
-                # Instantly run the monitor so the scheduler doesn't overwrite it
                 env = os.environ.copy()
                 env["MANUAL_RUN"] = "true"
                 subprocess.run([sys.executable, "pipeline_monitor.py"], env=env)
                 
-                st.success("Audit complete! Check the Incident Queue and Audit Logs tabs.")
+                st.success("Audit complete! Check Incident Queue and Audit Directory.")
             except Exception as e:
                 st.error(f"Upload failed: {e}")
 
-# Fetch latest status
-try:
-    latest_run = fetch_data("SELECT status FROM pipeline_runs ORDER BY timestamp DESC LIMIT 1")
-    is_healthy = True
-    if not latest_run.empty and latest_run.iloc[0]['status'] == 'FAILURE':
-        is_healthy = False
-        
-    if is_healthy:
-        st.markdown('<div class="status-banner status-healthy"><i class="fa-solid fa-circle-check"></i> SYSTEM STATUS: FULLY OPERATIONAL</div>', unsafe_allow_html=True)
-    else:
-        st.markdown('<div class="status-banner status-degraded"><i class="fa-solid fa-triangle-exclamation"></i> SYSTEM STATUS: DEGRADED (ANOMALIES DETECTED)</div>', unsafe_allow_html=True)
-except:
-    pass
+    st.markdown("</div>", unsafe_allow_html=True)
 
-# --- MODERN ICON NAVIGATION TABS (streamlit-option-menu) ---
+# --- MODERN NAVIGATION TABS (streamlit-option-menu) ---
 selected_tab = option_menu(
     menu_title=None,
-    options=["Pipeline Health", "Incident Queue", "Audit Directory"],
-    icons=["activity", "shield-exclamation", "database"],
+    options=["Pipeline Health", "Incident Queue", "AI Intelligence Hub", "Audit Directory"],
+    icons=["activity", "shield-exclamation", "cpu", "database"],
     default_index=0,
     orientation="horizontal",
     styles={
@@ -358,28 +308,60 @@ if selected_tab == "Pipeline Health":
         if not runs_df.empty:
             runs_df['timestamp'] = pd.to_datetime(runs_df['timestamp'])
             
-            # --- DATA OBSERVABILITY KPI METRICS ---
             col1, col2, col3, col4 = st.columns(4)
             
             success_rate = (len(runs_df[runs_df['status'] == 'SUCCESS']) / len(runs_df)) * 100
             failed_checks = int(runs_df['failed_checks'].sum())
             est_rows = len(runs_df) * 150
             
-            col1.markdown(f'<div class="metric-card"><div class="metric-label">Total Executions</div><div class="metric-value">{len(runs_df)}</div></div>', unsafe_allow_html=True)
-            col2.markdown(f'<div class="metric-card"><div class="metric-label">Quality SLA Pass Rate</div><div class="metric-value">{success_rate:.1f}%</div></div>', unsafe_allow_html=True)
-            col3.markdown(f'<div class="metric-card"><div class="metric-label">Failed Quality Checks</div><div class="metric-value">{failed_checks}</div></div>', unsafe_allow_html=True)
-            col4.markdown(f'<div class="metric-card"><div class="metric-label">Ingested Volume (Est)</div><div class="metric-value">{est_rows:,}</div></div>', unsafe_allow_html=True)
+            col1.markdown(f"""
+            <div class="h-[105px] flex flex-col justify-between rounded-2xl border border-zinc-800 bg-zinc-900/60 p-5 shadow-xl backdrop-blur-xl transition-all duration-300 hover:-translate-y-1 hover:border-indigo-500/40">
+                <div class="flex items-center justify-between">
+                    <span class="text-[11px] font-bold uppercase tracking-wider text-zinc-400">Total Executions</span>
+                    <i class="fa-solid fa-bolt text-indigo-400 text-xs"></i>
+                </div>
+                <div class="text-3xl font-extrabold text-white tracking-tight">{len(runs_df)}</div>
+            </div>
+            """, unsafe_allow_html=True)
+
+            col2.markdown(f"""
+            <div class="h-[105px] flex flex-col justify-between rounded-2xl border border-zinc-800 bg-zinc-900/60 p-5 shadow-xl backdrop-blur-xl transition-all duration-300 hover:-translate-y-1 hover:border-indigo-500/40">
+                <div class="flex items-center justify-between">
+                    <span class="text-[11px] font-bold uppercase tracking-wider text-zinc-400">Quality SLA Pass Rate</span>
+                    <i class="fa-solid fa-shield-halved text-emerald-400 text-xs"></i>
+                </div>
+                <div class="text-3xl font-extrabold text-white tracking-tight">{success_rate:.1f}%</div>
+            </div>
+            """, unsafe_allow_html=True)
+
+            col3.markdown(f"""
+            <div class="h-[105px] flex flex-col justify-between rounded-2xl border border-zinc-800 bg-zinc-900/60 p-5 shadow-xl backdrop-blur-xl transition-all duration-300 hover:-translate-y-1 hover:border-indigo-500/40">
+                <div class="flex items-center justify-between">
+                    <span class="text-[11px] font-bold uppercase tracking-wider text-zinc-400">Failed Quality Checks</span>
+                    <i class="fa-solid fa-triangle-exclamation text-rose-400 text-xs"></i>
+                </div>
+                <div class="text-3xl font-extrabold text-white tracking-tight">{failed_checks}</div>
+            </div>
+            """, unsafe_allow_html=True)
+
+            col4.markdown(f"""
+            <div class="h-[105px] flex flex-col justify-between rounded-2xl border border-zinc-800 bg-zinc-900/60 p-5 shadow-xl backdrop-blur-xl transition-all duration-300 hover:-translate-y-1 hover:border-indigo-500/40">
+                <div class="flex items-center justify-between">
+                    <span class="text-[11px] font-bold uppercase tracking-wider text-zinc-400">Ingested Volume (Est)</span>
+                    <i class="fa-solid fa-database text-purple-400 text-xs"></i>
+                </div>
+                <div class="text-3xl font-extrabold text-white tracking-tight">{est_rows:,}</div>
+            </div>
+            """, unsafe_allow_html=True)
                 
             st.markdown("---")
-            st.markdown("<h4 style='font-size: 14px; font-weight: 700; color: #f8fafc; margin-bottom: 15px;'><i class='fa-solid fa-chart-line' style='color:#818cf8; margin-right:8px;'></i> Pipeline Reliability Trend (% Checks Passed)</h4>", unsafe_allow_html=True)
+            st.markdown("<h4 class='text-sm font-bold text-white mb-4 flex items-center gap-2'><i class='fa-solid fa-chart-line text-indigo-400'></i> Pipeline Reliability Trend (% Checks Passed)</h4>", unsafe_allow_html=True)
             
-            # Prepare data for chart
             runs_df['pass_rate'] = (runs_df['passed_checks'] / runs_df['total_checks']) * 100
             runs_df['pass_rate'] = runs_df['pass_rate'].fillna(0)
             
-            # Beautiful Altair Chart
             chart = alt.Chart(runs_df).mark_area(
-                line={'color':'#6366f1'}, # Indigo-500
+                line={'color':'#6366f1'},
                 color=alt.Gradient(
                     gradient='linear',
                     stops=[alt.GradientStop(color='#6366f1', offset=0),
@@ -392,9 +374,7 @@ if selected_tab == "Pipeline Health":
                 tooltip=['timestamp', 'pass_rate', 'failed_checks']
             ).properties(height=380).interactive()
             
-            # Configure chart theme
             chart = chart.configure_view(strokeWidth=0).configure_axis(domain=False)
-            
             st.altair_chart(chart, use_container_width=True)
             
         else:
@@ -408,11 +388,19 @@ elif selected_tab == "Incident Queue":
         
         if not tickets_df.empty:
             tickets_df['created_at'] = pd.to_datetime(tickets_df['created_at'])
-            open_tickets = tickets_df[tickets_df['status'] != 'RESOLVED']
+            open_tickets = tickets_df[tickets_df['status'] != 'RESOLVED'].copy()
             
-            # Custom HTML Metrics
-            metric_col1, metric_col2 = st.columns(2)
-            metric_col1.markdown(f'<div class="metric-card"><div class="metric-label">Active Incident Tickets</div><div class="metric-value">{len(open_tickets)}</div></div>', unsafe_allow_html=True)
+            metric_col1, metric_col2, metric_col3 = st.columns(3)
+            
+            metric_col1.markdown(f"""
+            <div class="h-[105px] flex flex-col justify-between rounded-2xl border border-zinc-800 bg-zinc-900/60 p-5 shadow-xl backdrop-blur-xl transition-all duration-300 hover:-translate-y-1 hover:border-indigo-500/40">
+                <div class="flex items-center justify-between">
+                    <span class="text-[11px] font-bold uppercase tracking-wider text-zinc-400">Active Incident Tickets</span>
+                    <i class="fa-solid fa-triangle-exclamation text-rose-400 text-xs"></i>
+                </div>
+                <div class="text-3xl font-extrabold text-white tracking-tight">{len(open_tickets)}</div>
+            </div>
+            """, unsafe_allow_html=True)
             
             resolved = tickets_df[tickets_df['status'] == 'RESOLVED'].copy()
             if not resolved.empty:
@@ -425,25 +413,129 @@ elif selected_tab == "Incident Queue":
             else:
                 mttr_text = "N/A"
                 
-            metric_col2.markdown(f'<div class="metric-card"><div class="metric-label">Mean Time To Resolution (MTTR)</div><div class="metric-value">{mttr_text}</div></div>', unsafe_allow_html=True)
+            metric_col2.markdown(f"""
+            <div class="h-[105px] flex flex-col justify-between rounded-2xl border border-zinc-800 bg-zinc-900/60 p-5 shadow-xl backdrop-blur-xl transition-all duration-300 hover:-translate-y-1 hover:border-indigo-500/40">
+                <div class="flex items-center justify-between">
+                    <span class="text-[11px] font-bold uppercase tracking-wider text-zinc-400">Mean Time To Resolution (MTTR)</span>
+                    <i class="fa-solid fa-clock text-indigo-400 text-xs"></i>
+                </div>
+                <div class="text-3xl font-extrabold text-white tracking-tight">{mttr_text}</div>
+            </div>
+            """, unsafe_allow_html=True)
             
+            metric_col3.markdown(f"""
+            <div class="h-[105px] flex flex-col justify-between rounded-2xl border border-zinc-800 bg-zinc-900/60 p-5 shadow-xl backdrop-blur-xl transition-all duration-300 hover:-translate-y-1 hover:border-indigo-500/40">
+                <div class="flex items-center justify-between">
+                    <span class="text-[11px] font-bold uppercase tracking-wider text-zinc-400">System Incident SLA</span>
+                    <i class="fa-solid fa-circle-check text-emerald-400 text-xs"></i>
+                </div>
+                <div class="text-3xl font-extrabold text-emerald-400 tracking-tight">Active</div>
+            </div>
+            """, unsafe_allow_html=True)
+
             st.markdown("---")
             
-            severity_map = {'HIGH': 3, 'MEDIUM': 2, 'LOW': 1}
             if not open_tickets.empty:
-                open_tickets['sev_score'] = open_tickets['severity'].map(severity_map)
-                open_tickets = open_tickets.sort_values(by=['sev_score', 'created_at'], ascending=[False, False])
+                c_filter, c_page, c_action = st.columns([2, 2, 2])
+                with c_filter:
+                    sev_filter = st.selectbox("Severity Filter", ["ALL", "HIGH", "MEDIUM", "LOW"], key="queue_sev_filter")
                 
-                for _, ticket in open_tickets.iterrows():
-                    with st.expander(f"[{ticket['severity']}] {ticket['title']} - {ticket['created_at'].strftime('%H:%M')}"):
-                        st.markdown(f"<div class='ticket-desc'>\n\n{ticket['description']}\n\n</div>", unsafe_allow_html=True)
+                filtered_tickets = open_tickets.copy()
+                if sev_filter != "ALL":
+                    filtered_tickets = filtered_tickets[filtered_tickets['severity'] == sev_filter]
+
+                severity_map = {'HIGH': 3, 'MEDIUM': 2, 'LOW': 1}
+                filtered_tickets['sev_score'] = filtered_tickets['severity'].map(severity_map)
+                filtered_tickets = filtered_tickets.sort_values(by=['sev_score', 'created_at'], ascending=[False, False])
+                
+                page_size = 10
+                total_filtered = len(filtered_tickets)
+                total_pages = max(1, (total_filtered + page_size - 1) // page_size)
+                
+                with c_page:
+                    current_page = st.number_input(f"Page (1 of {total_pages})", min_value=1, max_value=total_pages, value=1, step=1)
+                
+                with c_action:
+                    st.markdown("<div style='height: 28px;'></div>", unsafe_allow_html=True)
+                    if len(open_tickets) > 0:
+                        if st.button("Clear All Incidents", type="secondary", use_container_width=True, key="btn_resolve_all"):
+                            if resolve_all_tickets():
+                                st.success("All open incident tickets resolved!")
+                                st.rerun()
+                
+                start_idx = (current_page - 1) * page_size
+                end_idx = start_idx + page_size
+                page_tickets = filtered_tickets.iloc[start_idx:end_idx]
+                
+                st.caption(f"Displaying **{len(page_tickets)}** of **{total_filtered}** active incidents (Page {current_page}/{total_pages}).")
+                
+                for _, ticket in page_tickets.iterrows():
+                    desc_raw = str(ticket['description'])
+                    
+                    # Smart metadata extraction
+                    fname = "None Found"
+                    run_id = "N/A"
+                    ai_rca = "Unspecified validation failure detected during batch ingestion."
+                    
+                    if "**File Name:**" in desc_raw:
+                        try:
+                            fname = desc_raw.split("**File Name:**")[1].split("**")[0].strip(" `")
+                        except Exception:
+                            pass
+                    if "**Pipeline Run ID:**" in desc_raw:
+                        try:
+                            run_id = desc_raw.split("**Pipeline Run ID:**")[1].split("**")[0].strip(" `")
+                        except Exception:
+                            pass
+                    if "AI Root Cause Analysis" in desc_raw:
+                        try:
+                            part = desc_raw.split("AI Root Cause Analysis")[1]
+                            if "Issues" in part:
+                                ai_rca = part.split("Issues")[0].strip(" #\n\r")
+                            else:
+                                ai_rca = part.strip(" #\n\r")
+                        except Exception:
+                            pass
+
+                    # Render Pristine Tailwind CSS v4 Incident Card
+                    with st.expander(f"[{ticket['severity']}] {ticket['title']} - {ticket['created_at'].strftime('%Y-%m-%d %H:%M')}"):
+                        st.markdown(f"""
+                        <div class="my-3 rounded-2xl border border-zinc-800 bg-zinc-900/90 p-5 shadow-xl backdrop-blur-md">
+                            <div class="grid grid-cols-3 gap-3 mb-4 border-b border-zinc-800/80 pb-4">
+                                <div class="rounded-xl bg-zinc-950 p-3 border border-zinc-800/60">
+                                    <div class="text-[10px] font-bold uppercase tracking-wider text-zinc-400">File Ingested</div>
+                                    <div class="text-xs font-semibold text-slate-100 font-mono mt-1 truncate">{fname}</div>
+                                </div>
+                                <div class="rounded-xl bg-zinc-950 p-3 border border-zinc-800/60">
+                                    <div class="text-[10px] font-bold uppercase tracking-wider text-zinc-400">Execution Run</div>
+                                    <div class="text-xs font-semibold text-indigo-400 font-mono mt-1">#{run_id}</div>
+                                </div>
+                                <div class="rounded-xl bg-zinc-950 p-3 border border-zinc-800/60">
+                                    <div class="text-[10px] font-bold uppercase tracking-wider text-zinc-400">Severity Level</div>
+                                    <div class="text-xs font-bold text-rose-400 font-mono mt-1">{ticket['severity']}</div>
+                                </div>
+                            </div>
+                            
+                            <div class="rounded-xl border border-indigo-500/20 bg-indigo-950/20 p-4">
+                                <div class="flex items-center gap-2 text-xs font-bold text-indigo-300 uppercase tracking-wider mb-1.5">
+                                    <i class="fa-solid fa-microchip text-indigo-400"></i> AI Root Cause Diagnosis
+                                </div>
+                                <div class="text-sm text-slate-200 leading-relaxed font-normal">{ai_rca}</div>
+                            </div>
+                        </div>
+                        """, unsafe_allow_html=True)
+                        
                         st.markdown(f"**Ticket ID:** `{ticket['id']}` &nbsp;&nbsp;|&nbsp;&nbsp; **Created:** `{ticket['created_at'].strftime('%Y-%m-%d %H:%M:%S')}`")
                         
                         if st.button("Resolve Incident", key=f"resolve_{ticket['id']}", use_container_width=True):
                             if resolve_ticket(ticket['id']):
                                 st.rerun()
             else:
-                st.markdown('<div class="status-banner status-healthy" style="margin-top:20px;"><i class="fa-solid fa-check"></i> Queue is empty! No active incidents.</div>', unsafe_allow_html=True)
+                st.markdown("""
+                <div class="my-6 flex items-center gap-3 rounded-xl border border-emerald-500/20 bg-emerald-500/10 p-4 font-semibold text-emerald-400 shadow-lg shadow-emerald-500/5 backdrop-blur-md">
+                    <i class="fa-solid fa-circle-check text-lg"></i> Queue is empty! No active incident tickets matching criteria.
+                </div>
+                """, unsafe_allow_html=True)
                     
         else:
             st.info("No tickets recorded yet.")
@@ -451,18 +543,113 @@ elif selected_tab == "Incident Queue":
     except Exception as e:
         st.error(f"Error loading ticket data: {e}")
 
+elif selected_tab == "AI Intelligence Hub":
+    st.markdown("""
+    <div class="mb-6">
+        <h3 class="text-xl font-extrabold text-white flex items-center gap-2.5">
+            <i class="fa-solid fa-brain text-indigo-400"></i> AI Intelligence Hub
+        </h3>
+        <p class="text-xs text-zinc-400 mt-1">Automated AI root cause analysis & execution reliability diagnosis.</p>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    with st.container(border=True):
+        st.markdown("""
+        <div class="mb-4">
+            <div class="flex items-center gap-2 text-sm font-bold text-slate-100 mb-1">
+                <i class="fa-solid fa-microchip text-indigo-400"></i> Pipeline Execution RCA Engine
+            </div>
+            <p class="text-xs text-zinc-400 leading-relaxed">
+                Select an execution run to generate instant AI Root Cause Analysis, domain intelligence, and validation checks breakdown.
+            </p>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        try:
+            runs_to_analyze = fetch_data("SELECT id, file_name, timestamp, status FROM pipeline_runs ORDER BY timestamp DESC LIMIT 20")
+            if not runs_to_analyze.empty:
+                run_options = {f"Run #{r['id']} — {r['file_name']} ({r['status']})": r['id'] for _, r in runs_to_analyze.iterrows()}
+                selected_run_label = st.selectbox("Select Execution Run to Diagnose", list(run_options.keys()), key="ai_hub_run_select")
+                selected_run_id = run_options[selected_run_label]
+                
+                st.markdown("<div class='my-3'></div>", unsafe_allow_html=True)
+                
+                if st.button("⚡ Run Root Cause Analysis (RCA)", type="primary", use_container_width=True, key="btn_run_unified_ai"):
+                    with st.spinner(f"Running AI Intelligence & Root Cause Analysis on Run #{selected_run_id}..."):
+                        checks = fetch_data(f"SELECT check_name, status, details FROM check_results WHERE run_id = {selected_run_id}")
+                        failed_checks = checks[checks['status'] == 'FAIL'].to_dict(orient='records')
+                        run_info = runs_to_analyze[runs_to_analyze['id']==selected_run_id].iloc[0]
+                        run_status = run_info['status']
+                        run_fname = run_info['file_name']
+                        
+                        rca_output = generate_ai_root_cause_analysis(
+                            failed_checks,
+                            None,
+                            run_fname,
+                            str(selected_run_id),
+                            run_status
+                        )
+                        
+                        formatted_md = f"""{rca_output}
+
+---
+
+### Validation Checks Breakdown
+"""
+                        for _, c in checks.iterrows():
+                            status_icon = '<i class="fa-solid fa-circle-check" style="color:#4ade80; margin-right:6px;"></i>' if c['status'] == 'PASS' else '<i class="fa-solid fa-circle-xmark" style="color:#f87171; margin-right:6px;"></i>'
+                            formatted_md += f"- {status_icon} **`{c['check_name']}`**: {c['details']}\n"
+                            
+                        st.session_state["active_ai_analysis"] = {
+                            "status": "SUCCESS",
+                            "summary_md": formatted_md
+                        }
+                        st.session_state["active_ai_filename"] = f"{run_fname} (Run #{selected_run_id})"
+            else:
+                st.info("No recorded pipeline runs found to analyze.")
+        except Exception as e:
+            st.error(f"Error fetching runs: {e}")
+
+    # Display Analysis Output Container (PURE TAILWIND CSS V4)
+    if "active_ai_analysis" in st.session_state:
+        res = st.session_state["active_ai_analysis"]
+        fname = st.session_state.get("active_ai_filename", "Uploaded File")
+        
+        st.markdown(f"""
+        <div class="my-6 rounded-2xl border border-indigo-500/20 bg-zinc-900/90 p-6 shadow-2xl backdrop-blur-xl transition-all hover:border-indigo-500/40">
+            <div class="flex items-center gap-3 border-b border-zinc-800 pb-4 mb-5">
+                <div class="flex h-10 w-10 items-center justify-center rounded-xl bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
+                    <i class="fa-solid fa-microchip text-lg"></i>
+                </div>
+                <div>
+                    <h3 class="text-base font-bold text-white tracking-tight">
+                        AI Diagnostic Report: <span class="text-indigo-400">{fname}</span>
+                    </h3>
+                    <p class="text-xs text-zinc-400">Data Observability & Intelligence</p>
+                </div>
+            </div>
+            <div class="text-sm text-slate-200 leading-relaxed">
+        """, unsafe_allow_html=True)
+        
+        st.markdown(res.get("summary_md", "No summary generated."), unsafe_allow_html=True)
+        
+        st.markdown("</div></div>", unsafe_allow_html=True)
+
 elif selected_tab == "Audit Directory":
     try:
-        st.markdown("<h3 style='font-size: 20px; font-weight: 700; color: #f8fafc; margin-bottom: 4px;'><i class='fa-solid fa-database' style='color: #818cf8; margin-right: 10px;'></i>File Audit Directory</h3>", unsafe_allow_html=True)
-        st.markdown("<p style='color: #94a3b8; font-size: 14px; margin-bottom: 20px;'>Search, filter, and inspect granular validation checks across historical pipeline runs.</p>", unsafe_allow_html=True)
+        st.markdown("""
+        <div class="mb-5">
+            <h3 class="text-xl font-bold text-white flex items-center gap-2">
+                <i class="fa-solid fa-database text-indigo-400"></i> File Audit Directory
+            </h3>
+        </div>
+        """, unsafe_allow_html=True)
         
-        # Display Deletion Alert Toast if run was deleted
         if st.session_state.get("deletion_alert"):
             st.toast(st.session_state.deletion_alert)
             st.success(st.session_state.deletion_alert)
             st.session_state.deletion_alert = None
         
-        # --- ROBUST MULTI-FIELD SEARCH & FILTER CONTROLS ---
         ctrl_col1, ctrl_col2, ctrl_col3 = st.columns([2, 1, 1])
         
         with ctrl_col1:
@@ -472,98 +659,90 @@ elif selected_tab == "Audit Directory":
             status_filter = st.selectbox("Status Filter", ["ALL", "SUCCESS", "FAILURE"])
             
         with ctrl_col3:
-            limit_choice = st.selectbox("Records Limit", [30, 50, 100, 500, "ALL"])
-            
-        limit_sql = "" if limit_choice == "ALL" else f"LIMIT {limit_choice}"
+            sort_order = st.selectbox("Sort By", ["Newest First", "Oldest First"])
+
+        base_query = """
+            SELECT p.id as run_id, p.file_name, p.timestamp, p.status as run_status,
+                   c.check_name, c.status as check_status, c.details
+            FROM pipeline_runs p
+            LEFT JOIN check_results c ON p.id = c.run_id
+        """
         
-        # Fetch live uncached runs and checks directly from database for deep filtering
-        runs_df = pd.read_sql(f"SELECT * FROM pipeline_runs ORDER BY timestamp DESC {limit_sql}", engine)
-        checks_df = fetch_data("SELECT * FROM check_results ORDER BY timestamp DESC LIMIT 1000")
+        audit_df = fetch_data(base_query)
         
-        if not runs_df.empty:
-            # Apply Status Filter
+        if not audit_df.empty:
             if status_filter != "ALL":
-                runs_df = runs_df[runs_df['status'] == status_filter]
+                audit_df = audit_df[audit_df['run_status'] == status_filter]
                 
-            # Apply Robust Multi-Field Deep Search
-            if search_query.strip():
-                q = search_query.strip().lower()
-                
-                # Check results deep match
-                matching_check_run_ids = set()
-                if not checks_df.empty:
-                    check_matches = checks_df[
-                        checks_df['check_name'].astype(str).str.lower().str.contains(q, na=False) |
-                        checks_df['details'].astype(str).str.lower().str.contains(q, na=False)
-                    ]
-                    matching_check_run_ids = set(check_matches['run_id'].dropna().unique())
-                    
-                runs_df = runs_df[
-                    runs_df['file_name'].astype(str).str.lower().str.contains(q, na=False) |
-                    runs_df['id'].astype(str).str.contains(q, na=False) |
-                    runs_df['storage_location'].astype(str).str.lower().str.contains(q, na=False) |
-                    runs_df['id'].isin(matching_check_run_ids)
+            if search_query:
+                q = search_query.lower()
+                audit_df = audit_df[
+                    audit_df['file_name'].str.lower().str.contains(q, na=False) |
+                    audit_df['check_name'].str.lower().str.contains(q, na=False) |
+                    audit_df['details'].str.lower().str.contains(q, na=False) |
+                    audit_df['run_id'].astype(str).str.contains(q, na=False)
                 ]
                 
-            if not runs_df.empty:
-                st.markdown(f"<p style='color: #818cf8; font-size: 13px; font-weight: 600; margin-bottom: 15px;'><i class='fa-solid fa-filter' style='margin-right:6px;'></i> Showing {len(runs_df)} matching execution run(s)</p>", unsafe_allow_html=True)
-                
-                for _, run in runs_df.iterrows():
-                    status_text = "PASS" if run['status'] == 'SUCCESS' else "FAIL"
-                    run_time = pd.to_datetime(run['timestamp']).strftime("%Y-%m-%d %H:%M:%S")
-                    file_name = run.get('file_name', 'Unknown')
-                    storage_loc = run.get('storage_location', 'N/A')
-                    total = run.get('total_checks', 0)
-                    passed = run.get('passed_checks', 0)
-                    
-                    expander_label = f"[{status_text}]  |  {file_name}  |  Checks: {passed}/{total} Passed  |  {run_time}"
-                    
-                    with st.expander(expander_label):
-                        col_info1, col_info2, col_info3 = st.columns(3)
-                        col_info1.markdown(f"**Run ID:** `{run['id']}`")
-                        col_info2.markdown(f"**File Name:** `{file_name}`")
-                        col_info3.markdown(f"**Storage Location:** `{storage_loc}`")
-                        
-                        st.markdown("---")
-                        st.markdown("<h5 style='color:#cbd5e1; margin-bottom:12px;'>Granular Check Breakdown</h5>", unsafe_allow_html=True)
-                        
-                        if not checks_df.empty:
-                            run_checks = checks_df[checks_df['run_id'] == run['id']]
-                            if not run_checks.empty:
-                                display_df = run_checks[['check_name', 'status', 'details']].copy()
-                                
-                                def highlight_status(val):
-                                    color = '#4ade80' if val == 'PASS' else '#f87171'
-                                    return f'color: {color}; font-weight: bold'
-                                    
-                                styled_df = display_df.style.map(highlight_status, subset=['status'])
-                                st.dataframe(styled_df, use_container_width=True, hide_index=True)
-                            else:
-                                st.write("No granular checks recorded for this run.")
-                        else:
-                            st.write("No checks available.")
-                            
-                        st.markdown("<div style='margin-top: 15px;'></div>", unsafe_allow_html=True)
-                        col_sp, col_del_action = st.columns([4, 1])
-                        with col_del_action:
-                            with st.popover("Delete Record", use_container_width=True):
-                                pop_hdr, pop_cls = st.columns([4, 1])
-                                with pop_hdr:
-                                    st.markdown(f"**Delete Run #{run['id']}?**")
-                                with pop_cls:
-                                    if st.button("Cancel", key=f"cls_pop_{run['id']}", help="Cancel deletion"):
-                                        st.rerun()
-                                        
-                                st.caption(f"Record for `{file_name}` will be permanently deleted.")
-                                st.markdown("<div style='margin-top: 6px;'></div>", unsafe_allow_html=True)
-                                
-                                if st.button("Confirm Delete", key=f"confirm_pop_{run['id']}", type="primary", use_container_width=True):
-                                    if delete_pipeline_run(run['id'], storage_loc):
-                                        st.session_state.deletion_alert = f"Execution run #{run['id']} ({file_name}) successfully deleted."
-                                        st.rerun()
+            if sort_order == "Newest First":
+                audit_df = audit_df.sort_values(by="timestamp", ascending=False)
             else:
-                st.warning(f"No execution runs found matching your search filter.")
+                audit_df = audit_df.sort_values(by="timestamp", ascending=True)
+
+            unique_runs = audit_df['run_id'].unique()
+            
+            st.caption(f"Showing **{len(unique_runs)}** execution runs matching criteria.")
+            
+            for run_id in unique_runs:
+                run_rows = audit_df[audit_df['run_id'] == run_id]
+                first_row = run_rows.iloc[0]
+                
+                dt_str = pd.to_datetime(first_row['timestamp']).strftime('%Y-%m-%d %H:%M:%S')
+                r_status = first_row['run_status']
+                f_name = first_row['file_name']
+                
+                with st.expander(f"Run #{run_id} — {f_name} ({r_status}) — {dt_str}"):
+                    info_col, btn_col = st.columns([4, 1])
+                    with info_col:
+                        st.markdown(f"**Execution ID:** `{run_id}` &nbsp;&nbsp;|&nbsp;&nbsp; **File:** `{f_name}` &nbsp;&nbsp;|&nbsp;&nbsp; **Timestamp:** `{dt_str}`")
+                    with btn_col:
+                        if st.button("🗑️ Delete Run", key=f"btn_del_{run_id}", type="secondary", use_container_width=True):
+                            st.session_state.active_delete_run = (run_id, f"s3://quarantine/{f_name}", f_name)
+                            st.rerun()
+
+                    st.markdown("<div class='my-2'></div>", unsafe_allow_html=True)
+                    
+                    check_table_data = []
+                    for _, crow in run_rows.iterrows():
+                        if pd.notnull(crow['check_name']):
+                            c_stat = crow['check_status']
+                            check_table_data.append({
+                                "Check Name": crow['check_name'],
+                                "Status": c_stat,
+                                "Details": crow['details']
+                            })
+                            
+                    if check_table_data:
+                        c_df = pd.DataFrame(check_table_data)
+                        st.dataframe(
+                            c_df,
+                            column_config={
+                                "Status": st.column_config.TextColumn(
+                                    "Status",
+                                    help="Validation Pass/Fail result"
+                                )
+                            },
+                            use_container_width=True,
+                            hide_index=True
+                        )
+                    else:
+                        st.caption("No individual check records logged for this execution.")
+                        
         else:
-            st.info("No audit logs available yet.")
+            st.info("No audit logs matching current filter criteria.")
+
     except Exception as e:
-        st.error(f"Error loading audit logs: {e}")
+        st.error(f"Error rendering audit directory: {e}")
+
+if st.session_state.get("active_delete_run"):
+    r_id, s_loc, f_n = st.session_state.active_delete_run
+    confirm_delete_dialog(r_id, s_loc, f_n)
