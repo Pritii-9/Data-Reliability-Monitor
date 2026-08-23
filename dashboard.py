@@ -12,9 +12,6 @@ import subprocess
 import sys
 from supabase import create_client, Client
 from streamlit_option_menu import option_menu
-import importlib
-import ai_engine
-importlib.reload(ai_engine)
 from ai_engine import generate_file_ai_summary, generate_ai_root_cause_analysis
 
 load_dotenv()
