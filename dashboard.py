@@ -1,14 +1,17 @@
 import os
 import streamlit as st
 import pandas as pd
-from sqlalchemy import create_engine
+import requests
+from sqlalchemy import create_engine, text
 from dotenv import load_dotenv
 from ticketing import resolve_ticket
+from database import SessionLocal, PipelineRun, CheckResult
 import altair as alt
 from datetime import datetime
 import subprocess
 import sys
 from supabase import create_client, Client
+from streamlit_option_menu import option_menu
 
 load_dotenv()
 
@@ -20,10 +23,50 @@ supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./monitor.db")
 engine = create_engine(DATABASE_URL)
 
+@st.cache_data(ttl=15, show_spinner=False)
+def check_fastapi_health():
+    """Cache API health check for 15 seconds to prevent network lag on every UI click."""
+    try:
+        res = requests.get("http://localhost:8000/", timeout=0.5)
+        return res.status_code == 200
+    except Exception:
+        return False
+
 @st.cache_data(ttl=10, show_spinner=False)
 def fetch_data(query):
     """Fetch data from the database with a 10-second cache to prevent DB locking/spam."""
     return pd.read_sql(query, engine)
+
+def delete_pipeline_run(run_id, storage_location=None):
+    """Deletes a pipeline run and check results instantly using direct SQL transaction."""
+    try:
+        rid = int(run_id)
+        with engine.begin() as conn:
+            conn.execute(text("DELETE FROM check_results WHERE run_id = :rid"), {"rid": rid})
+            conn.execute(text("DELETE FROM pipeline_runs WHERE id = :rid"), {"rid": rid})
+            
+        st.cache_data.clear()
+        return True
+    except Exception as e:
+        st.error(f"Failed to delete run record #{run_id}: {e}")
+        return False
+
+@st.dialog("⚠️ Confirm Deletion")
+def confirm_delete_dialog(run_id, storage_loc, file_name):
+    st.markdown(f"Are you sure you want to permanently delete the execution record for **`{file_name}`** (Run #{run_id})?")
+    st.caption("This action is permanent and will delete the record from database and cloud storage.")
+    
+    col_close, col_confirm = st.columns([1, 1])
+    with col_close:
+        if st.button("❌ Cancel", key=f"cancel_modal_{run_id}", use_container_width=True):
+            st.session_state.active_delete_run = None
+            st.rerun()
+    with col_confirm:
+        if st.button("🗑️ Confirm Delete", key=f"confirm_modal_{run_id}", type="primary", use_container_width=True):
+            st.session_state.active_delete_run = None
+            if delete_pipeline_run(run_id, storage_loc):
+                st.success(f"Execution run #{run_id} deleted successfully.")
+                st.rerun()
 
 st.set_page_config(page_title="Data Reliability Monitor", layout="wide", page_icon="📈")
 
@@ -39,6 +82,24 @@ st.markdown("""
     
     .stApp {
         background-color: #09090b;
+    }
+
+    /* Rich Dark Sidebar Styling */
+    section[data-testid="stSidebar"] {
+        background-color: #0c0c0e !important;
+        border-right: 1px solid rgba(255, 255, 255, 0.06) !important;
+    }
+    
+    /* File Uploader Container Styling */
+    div[data-testid="stFileUploader"] {
+        background-color: #141418 !important;
+        border: 1px dashed rgba(129, 140, 248, 0.3) !important;
+        border-radius: 12px !important;
+        padding: 10px !important;
+        transition: border-color 0.2s ease;
+    }
+    div[data-testid="stFileUploader"]:hover {
+        border-color: #818cf8 !important;
     }
 
     /* Gradient Title */
@@ -74,6 +135,28 @@ st.markdown("""
         border: 1px solid rgba(239, 68, 68, 0.2); 
         color: #f87171; 
         box-shadow: 0 0 20px rgba(239, 68, 68, 0.05);
+    }
+
+    /* Vector Icon Status Badges */
+    .badge-pass {
+        background-color: rgba(34, 197, 94, 0.12);
+        color: #4ade80;
+        border: 1px solid rgba(34, 197, 94, 0.3);
+        padding: 4px 10px;
+        border-radius: 6px;
+        font-size: 12px;
+        font-weight: 700;
+        letter-spacing: 0.05em;
+    }
+    .badge-fail {
+        background-color: rgba(239, 68, 68, 0.12);
+        color: #f87171;
+        border: 1px solid rgba(239, 68, 68, 0.3);
+        padding: 4px 10px;
+        border-radius: 6px;
+        font-size: 12px;
+        font-weight: 700;
+        letter-spacing: 0.05em;
     }
     
     /* Glassmorphism Metric Cards with Hover */
@@ -168,21 +251,35 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-st.markdown('<h1 style="font-family: \'Inter\', sans-serif;"><i class="fa-solid fa-layer-group" style="color: #818cf8; margin-right: 16px;"></i><span class="gradient-text">Data Reliability Control Center</span></h1>', unsafe_allow_html=True)
-st.markdown('<div class="subtitle">Enterprise-grade observability, real-time anomaly detection, and automated incident resolution.</div>', unsafe_allow_html=True)
+# --- TOP HEADER NAVIGATION BAR ---
+col_head, col_act = st.columns([3, 1])
 
-# --- SIDEBAR: MANUAL TESTING ---
+with col_head:
+    st.markdown('<h1 style="font-family: \'Inter\', sans-serif; font-size: 28px; margin-bottom: 2px;"><i class="fa-solid fa-shield-halved" style="color: #818cf8; margin-right: 12px;"></i><span class="gradient-text">Data Reliability Control Center</span></h1>', unsafe_allow_html=True)
+    st.markdown('<div class="subtitle" style="margin-bottom: 20px;">Continuous data quality observability, anomaly detection & automated incident management.</div>', unsafe_allow_html=True)
+
+with col_act:
+    st.markdown("<div style='margin-top: 5px;'></div>", unsafe_allow_html=True)
+    if st.button("🔄 Refresh Data", use_container_width=True):
+        st.cache_data.clear()
+        st.rerun()
+
+# --- SIDEBAR: SYSTEM SERVICES & INGESTION LANDING ---
 with st.sidebar:
-    if st.button("🔄 Refresh Dashboard", use_container_width=True):
-        st.cache_data.clear() # Force clear the cache so they get the absolute newest data when clicking refresh
+    st.markdown("<h4 style='font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: #a1a1aa; margin-bottom: 12px;'><i class='fa-solid fa-server' style='color: #818cf8; margin-right: 8px;'></i> Microservice Infrastructure</h4>", unsafe_allow_html=True)
+    if check_fastapi_health():
+        st.markdown("<div style='background:rgba(34,197,94,0.08); border:1px solid rgba(34,197,94,0.2); padding:10px 14px; border-radius:8px; color:#4ade80; font-size:13px; font-weight:600;'><i class='fa-solid fa-circle-check'></i> API Engine: Active (8000)</div>", unsafe_allow_html=True)
+    else:
+        st.markdown("<div style='background:rgba(234,179,8,0.08); border:1px solid rgba(234,179,8,0.2); padding:10px 14px; border-radius:8px; color:#facc15; font-size:13px; font-weight:600;'><i class='fa-solid fa-triangle-exclamation'></i> API Engine: Offline</div>", unsafe_allow_html=True)
+        
+    st.markdown("<div style='margin-top: 25px;'></div>", unsafe_allow_html=True)
+    st.markdown("<h4 style='font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: #a1a1aa; margin-bottom: 12px;'><i class='fa-solid fa-cloud-arrow-up' style='color: #818cf8; margin-right: 8px;'></i> Batch Ingestion Zone</h4>", unsafe_allow_html=True)
+    st.markdown("<p style='font-size: 13px; color: #94a3b8; margin-bottom: 14px;'>Drop custom CSV datasets here to trigger real-time validation and cloud storage backup.</p>", unsafe_allow_html=True)
     
-    st.markdown("---")
-    st.markdown("### 🧪 Manual Testing Zone")
-    st.markdown("<p style='font-size: 14px; color: #94a3b8;'>Drop a custom CSV here. It will be uploaded directly to S3. Within 60 seconds, your background scheduler will detect it, audit it, and flag any errors!</p>", unsafe_allow_html=True)
-    
-    uploaded_file = st.file_uploader("Upload custom CSV", type=['csv'])
+    uploaded_file = st.file_uploader("Select Batch Dataset", type=['csv'])
     if uploaded_file is not None:
-        if st.button("📤 Upload to Cloud Storage", use_container_width=True):
+        st.markdown("<div style='margin-top: 10px;'></div>", unsafe_allow_html=True)
+        if st.button("Upload Dataset to Cloud", type="primary", use_container_width=True):
             try:
                 bucket_name = os.getenv('S3_BUCKET_NAME', 'data-pipeline-bucket')
                 original_name = uploaded_file.name
@@ -240,15 +337,28 @@ try:
 except:
     pass
 
-tab1, tab2, tab3 = st.tabs(["Pipeline Health", "Incident Queue", "Audit Logs"])
+# --- MODERN ICON NAVIGATION TABS (streamlit-option-menu) ---
+selected_tab = option_menu(
+    menu_title=None,
+    options=["Pipeline Health", "Incident Queue", "Audit Directory"],
+    icons=["activity", "shield-exclamation", "database"],
+    default_index=0,
+    orientation="horizontal",
+    styles={
+        "container": {"padding": "4px!important", "background-color": "#18181b", "border-radius": "10px", "margin-bottom": "25px", "border": "1px solid rgba(255,255,255,0.05)"},
+        "icon": {"color": "#818cf8", "font-size": "16px"},
+        "nav-link": {"font-size": "14px", "text-align": "center", "margin": "0px 4px", "color": "#a1a1aa", "font-weight": "600", "padding": "10px 16px"},
+        "nav-link-selected": {"background-color": "#27272a", "color": "#f8fafc", "font-weight": "700", "border-radius": "8px"},
+    }
+)
 
-with tab1:
+if selected_tab == "Pipeline Health":
     try:
         runs_df = fetch_data("SELECT * FROM pipeline_runs ORDER BY timestamp DESC LIMIT 50")
         if not runs_df.empty:
             runs_df['timestamp'] = pd.to_datetime(runs_df['timestamp'])
             
-            # Custom HTML Metric Cards
+            # --- DATA OBSERVABILITY KPI METRICS ---
             col1, col2, col3, col4 = st.columns(4)
             
             success_rate = (len(runs_df[runs_df['status'] == 'SUCCESS']) / len(runs_df)) * 100
@@ -256,14 +366,14 @@ with tab1:
             est_rows = len(runs_df) * 150
             
             col1.markdown(f'<div class="metric-card"><div class="metric-label">Total Executions</div><div class="metric-value">{len(runs_df)}</div></div>', unsafe_allow_html=True)
-            col2.markdown(f'<div class="metric-card"><div class="metric-label">Pipeline Health</div><div class="metric-value">{success_rate:.1f}%</div></div>', unsafe_allow_html=True)
-            col3.markdown(f'<div class="metric-card"><div class="metric-label">Failed Checks</div><div class="metric-value">{failed_checks}</div></div>', unsafe_allow_html=True)
-            col4.markdown(f'<div class="metric-card"><div class="metric-label">Data Processed (Est)</div><div class="metric-value">{est_rows:,}</div></div>', unsafe_allow_html=True)
+            col2.markdown(f'<div class="metric-card"><div class="metric-label">Quality SLA Pass Rate</div><div class="metric-value">{success_rate:.1f}%</div></div>', unsafe_allow_html=True)
+            col3.markdown(f'<div class="metric-card"><div class="metric-label">Failed Quality Checks</div><div class="metric-value">{failed_checks}</div></div>', unsafe_allow_html=True)
+            col4.markdown(f'<div class="metric-card"><div class="metric-label">Ingested Volume (Est)</div><div class="metric-value">{est_rows:,}</div></div>', unsafe_allow_html=True)
                 
             st.markdown("---")
-            st.markdown("### Data Quality Trend (% Checks Passed)")
+            st.markdown("<h4 style='font-size: 14px; font-weight: 700; color: #f8fafc; margin-bottom: 15px;'><i class='fa-solid fa-chart-line' style='color:#818cf8; margin-right:8px;'></i> Pipeline Reliability Trend (% Checks Passed)</h4>", unsafe_allow_html=True)
             
-            # Prepare data for beautiful chart
+            # Prepare data for chart
             runs_df['pass_rate'] = (runs_df['passed_checks'] / runs_df['total_checks']) * 100
             runs_df['pass_rate'] = runs_df['pass_rate'].fillna(0)
             
@@ -292,7 +402,7 @@ with tab1:
     except Exception as e:
         st.error(f"Error loading pipeline data: {e}")
 
-with tab2:
+elif selected_tab == "Incident Queue":
     try:
         tickets_df = fetch_data("SELECT * FROM tickets ORDER BY created_at DESC")
         
@@ -341,49 +451,118 @@ with tab2:
     except Exception as e:
         st.error(f"Error loading ticket data: {e}")
 
-with tab3:
+elif selected_tab == "Audit Directory":
     try:
-        runs_df = fetch_data("SELECT * FROM pipeline_runs ORDER BY timestamp DESC LIMIT 30")
+        st.markdown("<h3 style='font-size: 20px; font-weight: 700; color: #f8fafc; margin-bottom: 4px;'><i class='fa-solid fa-database' style='color: #818cf8; margin-right: 10px;'></i>File Audit Directory</h3>", unsafe_allow_html=True)
+        st.markdown("<p style='color: #94a3b8; font-size: 14px; margin-bottom: 20px;'>Search, filter, and inspect granular validation checks across historical pipeline runs.</p>", unsafe_allow_html=True)
+        
+        # Display Deletion Alert Toast if run was deleted
+        if st.session_state.get("deletion_alert"):
+            st.toast(st.session_state.deletion_alert)
+            st.success(st.session_state.deletion_alert)
+            st.session_state.deletion_alert = None
+        
+        # --- ROBUST MULTI-FIELD SEARCH & FILTER CONTROLS ---
+        ctrl_col1, ctrl_col2, ctrl_col3 = st.columns([2, 1, 1])
+        
+        with ctrl_col1:
+            search_query = st.text_input("Deep Search (File, ID, Check, or Details)", placeholder="e.g. daily_users, #101, null_values, schema...")
+            
+        with ctrl_col2:
+            status_filter = st.selectbox("Status Filter", ["ALL", "SUCCESS", "FAILURE"])
+            
+        with ctrl_col3:
+            limit_choice = st.selectbox("Records Limit", [30, 50, 100, 500, "ALL"])
+            
+        limit_sql = "" if limit_choice == "ALL" else f"LIMIT {limit_choice}"
+        
+        # Fetch live uncached runs and checks directly from database for deep filtering
+        runs_df = pd.read_sql(f"SELECT * FROM pipeline_runs ORDER BY timestamp DESC {limit_sql}", engine)
+        checks_df = fetch_data("SELECT * FROM check_results ORDER BY timestamp DESC LIMIT 1000")
+        
         if not runs_df.empty:
-            st.markdown("### 🔍 File Audit Directory")
-            st.markdown("<p style='color: #94a3b8; font-size: 14px; margin-bottom: 20px;'>Click any file execution below to inspect its granular validation results and cloud storage path.</p>", unsafe_allow_html=True)
-            
-            checks_df = fetch_data("SELECT * FROM check_results ORDER BY timestamp DESC LIMIT 300")
-            
-            for _, run in runs_df.iterrows():
-                status_icon = "🟢 PASS" if run['status'] == 'SUCCESS' else "🔴 FAIL"
-                run_time = pd.to_datetime(run['timestamp']).strftime("%Y-%m-%d %H:%M:%S")
-                file_name = run.get('file_name', 'Unknown')
-                storage_loc = run.get('storage_location', 'N/A')
-                total = run.get('total_checks', 0)
-                passed = run.get('passed_checks', 0)
+            # Apply Status Filter
+            if status_filter != "ALL":
+                runs_df = runs_df[runs_df['status'] == status_filter]
                 
-                expander_label = f"{status_icon} &nbsp;|&nbsp; 📁 {file_name} &nbsp;|&nbsp; Checks: {passed}/{total} Passed &nbsp;|&nbsp; 🕒 {run_time}"
+            # Apply Robust Multi-Field Deep Search
+            if search_query.strip():
+                q = search_query.strip().lower()
                 
-                with st.expander(expander_label):
-                    col_info1, col_info2, col_info3 = st.columns(3)
-                    col_info1.markdown(f"**Run ID:** `{run['id']}`")
-                    col_info2.markdown(f"**File Name:** `{file_name}`")
-                    col_info3.markdown(f"**Storage Location:** `{storage_loc}`")
+                # Check results deep match
+                matching_check_run_ids = set()
+                if not checks_df.empty:
+                    check_matches = checks_df[
+                        checks_df['check_name'].astype(str).str.lower().str.contains(q, na=False) |
+                        checks_df['details'].astype(str).str.lower().str.contains(q, na=False)
+                    ]
+                    matching_check_run_ids = set(check_matches['run_id'].dropna().unique())
                     
-                    st.markdown("---")
-                    st.markdown("<h5 style='color:#cbd5e1; margin-bottom:12px;'>Granular Check Breakdown</h5>", unsafe_allow_html=True)
+                runs_df = runs_df[
+                    runs_df['file_name'].astype(str).str.lower().str.contains(q, na=False) |
+                    runs_df['id'].astype(str).str.contains(q, na=False) |
+                    runs_df['storage_location'].astype(str).str.lower().str.contains(q, na=False) |
+                    runs_df['id'].isin(matching_check_run_ids)
+                ]
+                
+            if not runs_df.empty:
+                st.markdown(f"<p style='color: #818cf8; font-size: 13px; font-weight: 600; margin-bottom: 15px;'><i class='fa-solid fa-filter' style='margin-right:6px;'></i> Showing {len(runs_df)} matching execution run(s)</p>", unsafe_allow_html=True)
+                
+                for _, run in runs_df.iterrows():
+                    status_text = "PASS" if run['status'] == 'SUCCESS' else "FAIL"
+                    run_time = pd.to_datetime(run['timestamp']).strftime("%Y-%m-%d %H:%M:%S")
+                    file_name = run.get('file_name', 'Unknown')
+                    storage_loc = run.get('storage_location', 'N/A')
+                    total = run.get('total_checks', 0)
+                    passed = run.get('passed_checks', 0)
                     
-                    if not checks_df.empty:
-                        run_checks = checks_df[checks_df['run_id'] == run['id']]
-                        if not run_checks.empty:
-                            display_df = run_checks[['check_name', 'status', 'details']].copy()
-                            
-                            def highlight_status(val):
-                                color = '#4ade80' if val == 'PASS' else '#f87171'
-                                return f'color: {color}; font-weight: bold'
+                    expander_label = f"[{status_text}]  |  {file_name}  |  Checks: {passed}/{total} Passed  |  {run_time}"
+                    
+                    with st.expander(expander_label):
+                        col_info1, col_info2, col_info3 = st.columns(3)
+                        col_info1.markdown(f"**Run ID:** `{run['id']}`")
+                        col_info2.markdown(f"**File Name:** `{file_name}`")
+                        col_info3.markdown(f"**Storage Location:** `{storage_loc}`")
+                        
+                        st.markdown("---")
+                        st.markdown("<h5 style='color:#cbd5e1; margin-bottom:12px;'>Granular Check Breakdown</h5>", unsafe_allow_html=True)
+                        
+                        if not checks_df.empty:
+                            run_checks = checks_df[checks_df['run_id'] == run['id']]
+                            if not run_checks.empty:
+                                display_df = run_checks[['check_name', 'status', 'details']].copy()
                                 
-                            styled_df = display_df.style.map(highlight_status, subset=['status'])
-                            st.dataframe(styled_df, use_container_width=True, hide_index=True)
+                                def highlight_status(val):
+                                    color = '#4ade80' if val == 'PASS' else '#f87171'
+                                    return f'color: {color}; font-weight: bold'
+                                    
+                                styled_df = display_df.style.map(highlight_status, subset=['status'])
+                                st.dataframe(styled_df, use_container_width=True, hide_index=True)
+                            else:
+                                st.write("No granular checks recorded for this run.")
                         else:
-                            st.write("No granular checks recorded for this run.")
-                    else:
-                        st.write("No checks available.")
+                            st.write("No checks available.")
+                            
+                        st.markdown("<div style='margin-top: 15px;'></div>", unsafe_allow_html=True)
+                        col_sp, col_del_action = st.columns([4, 1])
+                        with col_del_action:
+                            with st.popover("Delete Record", use_container_width=True):
+                                pop_hdr, pop_cls = st.columns([4, 1])
+                                with pop_hdr:
+                                    st.markdown(f"**Delete Run #{run['id']}?**")
+                                with pop_cls:
+                                    if st.button("Cancel", key=f"cls_pop_{run['id']}", help="Cancel deletion"):
+                                        st.rerun()
+                                        
+                                st.caption(f"Record for `{file_name}` will be permanently deleted.")
+                                st.markdown("<div style='margin-top: 6px;'></div>", unsafe_allow_html=True)
+                                
+                                if st.button("Confirm Delete", key=f"confirm_pop_{run['id']}", type="primary", use_container_width=True):
+                                    if delete_pipeline_run(run['id'], storage_loc):
+                                        st.session_state.deletion_alert = f"Execution run #{run['id']} ({file_name}) successfully deleted."
+                                        st.rerun()
+            else:
+                st.warning(f"No execution runs found matching your search filter.")
         else:
             st.info("No audit logs available yet.")
     except Exception as e:
