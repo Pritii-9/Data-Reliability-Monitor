@@ -1,6 +1,6 @@
 import os
 from datetime import datetime
-from sqlalchemy import create_engine, Column, Integer, String, DateTime, ForeignKey, Boolean, Text
+from sqlalchemy import create_engine, Column, Integer, String, DateTime, ForeignKey, Text, event
 from sqlalchemy.orm import declarative_base, sessionmaker, relationship
 from dotenv import load_dotenv
 
@@ -10,7 +10,22 @@ load_dotenv()
 # Use SQLite by default, but allow override via environment variable
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./monitor.db")
 
-engine = create_engine(DATABASE_URL, echo=False)
+# SQLAlchemy setup
+connect_args = {}
+if "sqlite" in DATABASE_URL:
+    connect_args = {"check_same_thread": False, "timeout": 15}
+
+engine = create_engine(DATABASE_URL, connect_args=connect_args)
+
+# Enable Write-Ahead Logging (WAL) to allow simultaneous readers and writers in SQLite
+if "sqlite" in DATABASE_URL:
+    @event.listens_for(engine, "connect")
+    def set_sqlite_pragma(dbapi_connection, connection_record):
+        cursor = dbapi_connection.cursor()
+        cursor.execute("PRAGMA journal_mode=WAL")
+        cursor.execute("PRAGMA synchronous=NORMAL")
+        cursor.close()
+
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
@@ -20,6 +35,8 @@ class PipelineRun(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     timestamp = Column(DateTime, default=datetime.utcnow)
+    file_name = Column(String, default="N/A")
+    storage_location = Column(String, default="landing/")
     status = Column(String) # e.g., 'SUCCESS', 'FAILURE'
     total_checks = Column(Integer, default=0)
     passed_checks = Column(Integer, default=0)
@@ -54,8 +71,17 @@ class Ticket(Base):
     resolved_at = Column(DateTime, nullable=True)
 
 def init_db():
-    """Create all tables in the database."""
+    """Create all tables in the database and handle schema updates."""
     Base.metadata.create_all(bind=engine)
+    
+    # Auto-migration for SQLite to add missing columns without dropping tables
+    if "sqlite" in DATABASE_URL:
+        with engine.connect() as conn:
+            for col, default_val in [("file_name", "N/A"), ("storage_location", "landing/")]:
+                try:
+                    conn.execute(f"ALTER TABLE pipeline_runs ADD COLUMN {col} VARCHAR DEFAULT '{default_val}'")
+                except Exception:
+                    pass # Column already exists
 
 def get_session():
     """Yield a database session."""

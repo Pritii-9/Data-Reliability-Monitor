@@ -2,41 +2,19 @@ import os
 import csv
 import random
 import time
-import boto3
 from datetime import datetime
 from dotenv import load_dotenv
-from botocore.exceptions import ClientError
+from supabase import create_client, Client
 
 # Load environment variables
 load_dotenv()
 
-# S3-Compatible Storage Configuration (MinIO for Local, Supabase S3 for Prod)
-S3_BUCKET_NAME = os.getenv("S3_BUCKET_NAME", "data-pipeline-bucket")
-S3_ENDPOINT_URL = os.getenv("S3_ENDPOINT_URL", "http://localhost:9000")
-AWS_ACCESS_KEY_ID = os.getenv("AWS_ACCESS_KEY_ID", "minioadmin")
-AWS_SECRET_ACCESS_KEY = os.getenv("AWS_SECRET_ACCESS_KEY", "minioadmin")
-AWS_REGION = os.getenv("AWS_DEFAULT_REGION", "us-east-1")
+# Supabase Storage Configuration
+SUPABASE_URL = os.getenv("SUPABASE_URL")
+SUPABASE_KEY = os.getenv("SUPABASE_SECRET_KEY")
+BUCKET_NAME = os.getenv("S3_BUCKET_NAME", "data-pipeline-bucket")
 
-s3_client = boto3.client(
-    's3',
-    endpoint_url=S3_ENDPOINT_URL,
-    aws_access_key_id=AWS_ACCESS_KEY_ID,
-    aws_secret_access_key=AWS_SECRET_ACCESS_KEY,
-    region_name=AWS_REGION
-)
-
-def ensure_bucket_exists():
-    """Ensure the target bucket exists via S3 API."""
-    try:
-        s3_client.head_bucket(Bucket=S3_BUCKET_NAME)
-    except ClientError as e:
-        error_code = e.response['Error']['Code']
-        if error_code == '404':
-            print(f"Bucket {S3_BUCKET_NAME} does not exist. Creating it...")
-            s3_client.create_bucket(Bucket=S3_BUCKET_NAME)
-            print(f"Bucket {S3_BUCKET_NAME} created successfully.")
-        else:
-            print(f"Error checking bucket: {e}")
+supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 def generate_mock_data(scenario="clean"):
     """
@@ -84,20 +62,19 @@ def generate_mock_data(scenario="clean"):
     return headers, data
 
 def upload_to_storage(filename, content_string):
-    """Uploads a string content as a file via S3 API."""
+    """Uploads string content directly to Supabase Storage."""
     try:
-        s3_client.put_object(
-            Bucket=S3_BUCKET_NAME,
-            Key=filename,
-            Body=content_string.encode('utf-8')
+        supabase.storage.from_(BUCKET_NAME).upload(
+            path=filename,
+            file=content_string.encode('utf-8'),
+            file_options={"content-type": "text/csv", "upsert": "true"}
         )
-        print(f"Successfully uploaded {filename} to S3 Storage")
+        print(f"Successfully uploaded {filename} to Supabase Storage")
     except Exception as e:
-        print(f"Failed to upload to S3 Storage: {e}")
+        print(f"Failed to upload to Supabase Storage: {e}")
 
 def run_simulation():
     """Runs a single iteration of the simulation."""
-    ensure_bucket_exists()
     
     # Randomly pick a scenario to simulate real-world data issues
     # 50% chance of clean data, 50% chance of some failure

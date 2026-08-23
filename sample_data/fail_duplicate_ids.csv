@@ -1,0 +1,13 @@
+user_id,email,plan_type,total_spent,last_login
+101,alice@example.com,Pro,150.50,2023-10-01
+102,bob@example.com,Basic,20.00,2023-10-02
+103,charlie@example.com,Enterprise,500.00,2023-10-03
+104,david@example.com,Pro,120.00,2023-10-04
+105,eve@example.com,Basic,30.00,2023-10-05
+103,frank_imposter@example.com,Pro,180.00,2023-10-06
+107,grace@example.com,Enterprise,600.00,2023-10-07
+108,heidi@example.com,Basic,15.00,2023-10-08
+109,ivan@example.com,Pro,200.00,2023-10-09
+110,judy@example.com,Pro,140.00,2023-10-10
+101,mallory_imposter@example.com,Basic,25.00,2023-10-11
+112,nina@example.com,Enterprise,550.00,2023-10-12

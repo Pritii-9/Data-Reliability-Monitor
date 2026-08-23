@@ -1,0 +1,16 @@
+user_id,email,signup_date,plan_type,total_spent
+201,alex.smith@acme.com,2026-08-01,Enterprise,1250.00
+202,sarah.connor@cyberdyne.com,2026-08-02,Pro,450.00
+203,bruce.wayne@waynetech.com,2026-08-03,Enterprise,9999.99
+204,clark.kent@dailyplanet.com,2026-08-04,Basic,29.99
+205,diana.prince@themyscira.io,2026-08-05,Pro,299.00
+206,barry.allen@starlabs.org,2026-08-06,Basic,15.00
+207,hal.jordan@ferrisair.com,2026-08-07,Pro,199.00
+208,arthur.curry@atlantis.gov,2026-08-08,Enterprise,3500.00
+209,victor.stone@startech.edu,2026-08-09,Pro,499.00
+210,oliver.queen@queenoptics.com,2026-08-10,Enterprise,7500.00
+211,kara.zorel@catco.media,2026-08-11,Basic,29.99
+212,jronn.jronzz@mars.net,2026-08-12,Pro,150.00
+213,peter.parker@bugle.nyc,2026-08-13,Basic,10.00
+214,tony.stark@starkind.com,2026-08-14,Enterprise,50000.00
+215,steve.rogers@avengers.org,2026-08-15,Pro,100.00

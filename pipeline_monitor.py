@@ -17,13 +17,13 @@ BUCKET_NAME = os.getenv("S3_BUCKET_NAME", "data-pipeline-bucket")
 
 # === Validation Logic (Unit Testable) ===
 
-def check_file_arrival(files_list, expected_date_str):
-    """Check if a file with the expected date string exists in Supabase Storage and return the newest."""
+def check_file_arrival(files_list, expected_date_str=None):
+    """Check for any unprocessed CSV file in the root bucket landing zone."""
     matching_files = []
     for file in files_list:
         key = file.get('name', '')
         # Ignore files that have already been moved to processed or quarantine folders
-        if expected_date_str in key and key.endswith('.csv') and 'backup' not in key and not key.startswith('processed/') and not key.startswith('quarantine/'):
+        if key.endswith('.csv') and 'backup' not in key and not key.startswith('processed/') and not key.startswith('quarantine/'):
             matching_files.append(file)
             
     if matching_files:
@@ -34,10 +34,11 @@ def check_file_arrival(files_list, expected_date_str):
     return False, None
 
 def validate_schema(headers, expected_headers):
-    """Check if the headers exactly match the expected schema."""
-    if headers == expected_headers:
-        return True, "Schema matches expected."
-    return False, f"Expected {expected_headers}, but got {headers}"
+    """Check if all expected required columns exist in the incoming dataset headers."""
+    missing = [col for col in expected_headers if col not in headers]
+    if not missing:
+        return True, f"Schema validated successfully ({len(headers)} columns detected)."
+    return False, f"Missing required columns: {missing}"
 
 def validate_row_count(num_rows, min_expected=10, max_expected=1000):
     """Check if the total row count falls within a reasonable range."""
@@ -134,9 +135,10 @@ def run_pipeline_monitor():
             
         arrived, file_key = check_file_arrival(files, today_str)
         current_file_key = file_key if arrived else "None Found"
+        run_record.file_name = current_file_key
         
         if not arrived:
-            log_check("file_arrival", False, f"Expected file for {today_str} not found.", "HIGH")
+            log_check("file_arrival", False, f"No unprocessed CSV file found in landing zone for {today_str}.", "HIGH")
             raise Exception("Critical failure: File did not arrive. Halting further checks.")
         else:
             log_check("file_arrival", True, f"File {file_key} found.")
@@ -182,11 +184,33 @@ def run_pipeline_monitor():
         # Move the file to Processed or Quarantine folders to prevent reprocessing
         try:
             folder = "processed" if run_record.status == "SUCCESS" else "quarantine"
-            new_key = f"{folder}/{file_key}"
+            
+            # Smart collision handling for destination folder
+            try:
+                dest_files = supabase.storage.from_(BUCKET_NAME).list(folder)
+                existing_dest_names = [f.get('name', '') for f in dest_files]
+            except Exception:
+                existing_dest_names = []
+            
+            base_name = file_key
+            ext = ""
+            if "." in file_key:
+                base_name, ext = file_key.rsplit(".", 1)
+                ext = "." + ext
+                
+            clean_dest_name = file_key
+            counter = 1
+            while clean_dest_name in existing_dest_names:
+                clean_dest_name = f"{base_name}_v{counter}{ext}"
+                counter += 1
+                
+            new_key = f"{folder}/{clean_dest_name}"
             
             supabase.storage.from_(BUCKET_NAME).move(file_key, new_key)
+            run_record.storage_location = new_key
             print(f"Archived file to {new_key}")
         except Exception as archive_error:
+            run_record.storage_location = f"landing/{file_key}"
             print(f"Failed to archive file {file_key}: {archive_error}")
             
     except Exception as e:

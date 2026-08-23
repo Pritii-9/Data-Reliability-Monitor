@@ -1,0 +1,38 @@
+name: Python Unit Tests
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    
+    # We must inject mock environment variables here! 
+    # Otherwise, the Supabase client will crash on import because there is no .env file in the cloud runner.
+    env:
+      SUPABASE_URL: "https://mockproject.supabase.co"
+      SUPABASE_SECRET_KEY: "mock_key"
+      S3_BUCKET_NAME: "data-pipeline-bucket"
+
+    steps:
+    - name: Checkout Repository
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.11"
+        cache: "pip"
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install pytest
+
+    - name: Run pytest
+      run: |
+        pytest tests/
