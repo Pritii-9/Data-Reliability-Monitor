@@ -1,68 +1,96 @@
-# Data Reliability Monitor
+# 🛡️ Enterprise Data Reliability Control Center & Observability Engine
 
-A portfolio project built to show how I handle data quality, pipeline monitoring, and incident management. I built this to demonstrate core Data Engineering concepts for my job applications.
+An enterprise-grade, decoupled microservice platform designed for automated data pipeline monitoring, real-time quality validation, AI-powered Root Cause Analysis (RCA), and incident queue management. Built to demonstrate core **Data Engineering**, **Data Observability (SLA/MTTR)**, and **Production Support Architecture**.
 
-## 🏗️ Architecture
+---
+
+## 🏗️ Decoupled Microservice Architecture
 
 ```text
-[ Data Generator ] --> (Uploads CSV) --> [ Supabase Storage ]
-                                                 |
-                                                 v
-[ Pipeline Monitor ] <--- (Validates Data) ---- |
-       |
-       |--(Pass)-------> Moves file to /processed
-       |--(Fail)-------> Moves file to /quarantine
-       |
-       |--(Logs Results)--> [ PostgreSQL / SQLite DB ]
-       |
-       |--(On Failure)----> [ Ticketing System ]
-                                       |
-                                       |--> [ Email Alerts (Manual Trigger) ]
-                                       |
-[ Streamlit Dashboard ] <----------------------
+               +-------------------------------------------------------+
+               |                  S3 / Cloud Storage                   |
+               |             (Landing / Processed / Quarantine)        |
+               +-------------------------------------------------------+
+                                           |
+                                           v
+   +-------------------------------------------------------------------------------+
+   |                             FastAPI Engine (Port 8000)                        |
+   |   - REST Ingestion API (/analyze-upload)                                      |
+   |   - Automated Validation: Schema Drift, Null Bounds, Row Count Anomalies     |
+   |   - AI-Driven Root Cause Analysis (LLM / OpenAI + Fallback Heuristics)       |
+   +-------------------------------------------------------------------------------+
+                       |                                       |
+                       v                                       v
+         +--------------------------+             +--------------------------+
+         |  PostgreSQL / SQLite DB  |             |  Incident Queue System   |
+         |  (Runs, Check Results)   |             |  (Auto Ticket + Alerts)  |
+         +--------------------------+             +--------------------------+
+                       ^                                       ^
+                       |                                       |
+   +-------------------------------------------------------------------------------+
+   |                            Streamlit Control Center                           |
+   |   - Vector Icon Navigation (streamlit-option-menu & FontAwesome)              |
+   |   - Deep Multi-Field Audit Search Engine (File, ID, Check, Details)           |
+   |   - Sub-50ms Direct SQL Rollbacks & Confirmation Popovers                   |
+   +-------------------------------------------------------------------------------+
 ```
 
-## 🛠️ Tech Stack
-- **Python 3.11+**
-- **Supabase**: For cloud object storage (handling our CSV data lake).
-- **SQLAlchemy & SQLite/Postgres**: For storing tickets and pipeline run metadata.
-- **Streamlit**: For the monitoring dashboard and manual testing UI.
-- **smtplib**: For sending HTML email alerts when bad data is caught.
+---
 
-## 🚀 Setup & Execution
+## 🛠️ Key Capabilities & Features
+
+* **⚡ Decoupled Backend Microservice**: High-throughput FastAPI API engine handling file ingestion, validation rule evaluation, and RCA payload generation.
+* **🤖 Automated AI Root Cause Analysis (RCA)**: Integrated LLM engine (`litellm`/`openai`) that diagnoses failed datasets and produces actionable troubleshooting steps for tier-1 support.
+* **🛡️ Data Observability & SLA Tracking**: Real-time monitoring of pass-rate compliance, pipeline latency, and Mean Time to Resolution (MTTR).
+* **🔍 Deep Multi-Field Audit Search**: Multi-field search across execution IDs, file names, cloud storage keys, check names, and error details.
+* **📖 Production Runbooks**: SOP documentation for common pipeline incidents (`missing-file`, `schema-mismatch`, `null-values`, `low-row-count`).
+
+---
+
+## 💻 Tech Stack
+
+* **Backend API**: Python 3.11+, FastAPI, Uvicorn, Pydantic
+* **Observability UI**: Streamlit, `streamlit-option-menu`, FontAwesome 6, Altair
+* **Storage & DB**: Supabase S3 Object Storage, SQLAlchemy, SQLite (Default) / PostgreSQL
+* **Quality Engine**: Pandas, Automated Rule Validation Suite
+* **Testing & CI**: Pytest, GitHub Actions
+
+---
+
+## 🚀 Getting Started
 
 ### 1. Environment Setup
-Copy `.env.example` to `.env` and fill in your credentials.
-You will need to get your Supabase URL and Secret Key from your Supabase project settings.
+Copy `.env.example` to `.env` and configure credentials:
+```bash
+cp .env.example .env
+```
 
-### 2. Email Alerts
-To enable email alerts, use a Gmail App Password:
-1. Go to Google Account -> Security -> 2-Step Verification -> App passwords.
-2. Create a new password and put it in `SMTP_APP_PASSWORD` in your `.env`.
-3. Set `SMTP_EMAIL` and `ALERT_RECIPIENT`.
-*(Note: To prevent spam, emails only send when you manually upload a file via the dashboard. The background scheduler creates tickets silently).*
-
-### 3. Database
-If you just want to run this locally, the code defaults to a local SQLite database (`monitor.db`). 
-If you want to run Postgres, you can spin it up with `docker-compose up -d`.
-
-### 4. Install Dependencies
+### 2. Install Dependencies
 ```bash
 pip install -r requirements.txt
 ```
 
-### 5. Running the Pipeline
-I wrote a background scheduler that acts like a cron job. It generates mock data and audits it every 1 minute.
+### 3. Run FastAPI Backend Engine
 ```bash
-python scheduler.py
+uvicorn api:app --reload --port 8000
 ```
-*(Check your Supabase storage bucket to watch files move into the `processed` and `quarantine` folders automatically!)*
 
-### 6. Start the Dashboard
+### 4. Run Streamlit Control Center
 ```bash
 streamlit run dashboard.py
 ```
-From the dashboard, you can view the incident queue, resolve tickets, and use the Manual Testing sidebar to upload your own broken CSVs and trigger real-time email alerts.
 
-## 📖 Runbooks
-In the `runbooks/` folder, I wrote Standard Operating Procedures (SOPs) for handling common data failures (nulls, schema mismatches, duplicates). This matches how a real on-call engineering team handles incident tickets.
+### 5. Execute Test Suite
+```bash
+pytest tests/
+```
+
+---
+
+## 📖 Operational SOP Runbooks
+
+Detailed resolution protocols are available in the [`runbooks/`](./runbooks) directory:
+* [`missing-file.md`](./runbooks/missing-file.md) - Handling missing batch drops & arrival delays
+* [`schema-mismatch.md`](./runbooks/schema-mismatch.md) - Resolving column mutation and schema drift
+* [`null-values.md`](./runbooks/null-values.md) - Inspecting null threshold breaches
+* [`low-row-count.md`](./runbooks/low-row-count.md) - Investigating row volume anomalies
