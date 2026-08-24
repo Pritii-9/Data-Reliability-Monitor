@@ -3,16 +3,18 @@ import io
 import csv
 from datetime import datetime, date
 from collections import Counter
-from database import SessionLocal, PipelineRun, CheckResult
-from ticketing import create_ticket
 from dotenv import load_dotenv
 from supabase import create_client, Client
+
+from src.db.database import SessionLocal, PipelineRun, CheckResult
+from src.services.ticketing import create_ticket
+from src.engine.ai_engine import generate_ai_root_cause_analysis
 
 load_dotenv()
 
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_SECRET_KEY")
-supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY) if SUPABASE_URL and SUPABASE_KEY else None
 BUCKET_NAME = os.getenv("S3_BUCKET_NAME", "data-pipeline-bucket")
 
 # === Validation Logic (Unit Testable) ===
@@ -63,7 +65,7 @@ def validate_nulls(data, headers, required_columns):
                 val = str(row[idx]).strip()
                 if not val or val.lower() == 'null' or val.lower() == 'none':
                     null_rows += 1
-                    break # Only count the row once if multiple nulls exist
+                    break  # Only count the row once if multiple nulls exist
     
     if null_rows > 0:
         return False, f"Found {null_rows} rows with nulls in required columns ({required_columns})."
@@ -109,7 +111,6 @@ def run_pipeline_monitor():
         else:
             checks_failed += 1
             status = "FAIL"
-            # Collect failure for consolidated ticketing
             failed_checks_list.append({
                 "name": name,
                 "details": details,
@@ -125,10 +126,9 @@ def run_pipeline_monitor():
         session.commit()
 
     try:
-        # 1. File Arrival Check
         today_str = datetime.now().strftime("%Y%m%d")
         try:
-            files = supabase.storage.from_(BUCKET_NAME).list()
+            files = supabase.storage.from_(BUCKET_NAME).list() if supabase else []
         except Exception as e:
             files = []
             print(f"Error accessing Supabase Storage: {e}")
@@ -143,7 +143,6 @@ def run_pipeline_monitor():
         else:
             log_check("file_arrival", True, f"File {file_key} found.")
             
-        # Download and read file
         try:
             res = supabase.storage.from_(BUCKET_NAME).download(file_key)
             csv_string = res.decode('utf-8')
@@ -161,33 +160,31 @@ def run_pipeline_monitor():
         headers = rows[0]
         data = rows[1:]
         
-        # 2. Schema Validation
+        # Schema Validation
         expected_schema = ["user_id", "email", "signup_date", "plan_type", "total_spent"]
         schema_ok, schema_msg = validate_schema(headers, expected_schema)
         log_check("schema_validation", schema_ok, schema_msg, "HIGH")
         
-        # 3. Row Count Check
+        # Row Count Check
         count_ok, count_msg = validate_row_count(len(data))
         log_check("row_count", count_ok, count_msg, "LOW")
         
-        # 4. Nulls in Required Fields
+        # Nulls Check
         required = ["user_id", "email"]
         nulls_ok, nulls_msg = validate_nulls(data, headers, required)
         log_check("null_check", nulls_ok, nulls_msg, "MEDIUM")
         
-        # 5. Duplicates Check
+        # Duplicates Check
         dupes_ok, dupes_msg = validate_duplicates(data, headers, "user_id")
         log_check("duplicate_check", dupes_ok, dupes_msg, "MEDIUM")
         
         run_record.status = "SUCCESS" if checks_failed == 0 else "FAILURE"
         
-        # Move the file to Processed or Quarantine folders to prevent reprocessing
         try:
             folder = "processed" if run_record.status == "SUCCESS" else "quarantine"
             
-            # Smart collision handling for destination folder
             try:
-                dest_files = supabase.storage.from_(BUCKET_NAME).list(folder)
+                dest_files = supabase.storage.from_(BUCKET_NAME).list(folder) if supabase else []
                 existing_dest_names = [f.get('name', '') for f in dest_files]
             except Exception:
                 existing_dest_names = []
@@ -206,7 +203,8 @@ def run_pipeline_monitor():
                 
             new_key = f"{folder}/{clean_dest_name}"
             
-            supabase.storage.from_(BUCKET_NAME).move(file_key, new_key)
+            if supabase:
+                supabase.storage.from_(BUCKET_NAME).move(file_key, new_key)
             run_record.storage_location = new_key
             print(f"Archived file to {new_key}")
         except Exception as archive_error:
@@ -222,7 +220,6 @@ def run_pipeline_monitor():
         run_record.passed_checks = checks_passed
         run_record.failed_checks = checks_failed
         
-        # Create consolidated ticket if any failures occurred
         if failed_checks_list:
             severity_rank = {"HIGH": 3, "MEDIUM": 2, "LOW": 1}
             highest_sev = max(failed_checks_list, key=lambda x: severity_rank.get(x["severity"], 1))["severity"]
@@ -232,8 +229,6 @@ def run_pipeline_monitor():
             else:
                 ticket_title = f"Multiple Issues Detected ({len(failed_checks_list)} checks failed)"
                 
-            # Generate AI Root Cause Analysis (RCA)
-            from ai_engine import generate_ai_root_cause_analysis
             ai_rca = generate_ai_root_cause_analysis(failed_checks_list)
 
             desc_lines = [

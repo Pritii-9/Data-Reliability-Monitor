@@ -77,7 +77,6 @@ def generate_ai_root_cause_analysis(
     Sends error context and data samples to Google AI Studio (Gemini) API for Automated Root Cause Analysis (RCA).
     Formats response in clear, concise, non-repetitive structured diagnostic Markdown.
     """
-    # Dynamically extract positional args if passed by older or cached callers
     if len(args) > 0 and isinstance(args[0], str):
         file_name = args[0]
     elif "file_name" in kwargs:
@@ -92,7 +91,7 @@ def generate_ai_root_cause_analysis(
         status = args[2]
     elif "status" in kwargs:
         status = kwargs["status"]
-    # Filter only actually failed checks if list of objects/dicts passed
+
     actual_failures = []
     if isinstance(failed_checks, list):
         for check in failed_checks:
@@ -107,7 +106,6 @@ def generate_ai_root_cause_analysis(
     else:
         actual_failures = [failed_checks]
 
-    # If no checks failed, return positive success confirmation
     if len(actual_failures) == 0:
         return f"""### 1. Dataset & Domain Context
 - File: {file_name} (Run #{run_id})
@@ -172,12 +170,10 @@ Output Format:
 ### 3. Required Action
 - [Specific fix, e.g., reroute file to the correct product pipeline or adjust expected schema]"""
 
-    # 1. Try Gemini
     gemini_result = call_gemini_api(prompt)
     if gemini_result:
         return gemini_result
 
-    # 2. OpenAI API Fallback
     openai_api_key = os.getenv("OPENAI_API_KEY")
     if openai_api_key and not openai_api_key.startswith("your_"):
         try:
@@ -192,7 +188,6 @@ Output Format:
         except Exception as oai_err:
             print(f"Notice: OpenAI API call skipped ({oai_err}).")
 
-    # 3. Intelligent Heuristic AI Engine Fallback (Concise Non-Repetitive Diagnostic Summary)
     domain_info = detect_dataset_domain(file_name, error_summary + " " + sample_columns)
     
     primary_cause = "Validation failure detected during batch processing."
@@ -231,33 +226,33 @@ def detect_dataset_domain(file_name: str, content_text: str) -> Dict[str, str]:
     
     if any(k in text_lower for k in ["product", "seller", "amazon", "price", "order", "item", "store", "shop", "cart", "inventory", "review_count"]):
         return {
-            "domain": "Amazon E-Commerce Product Catalog & Retail Order Pipeline",
-            "purpose": "real-time customer lifetime value (LTV) calculation, seller performance tracking, automated price reconciliation, and inventory forecasting.",
-            "impact": "Missing seller IDs or malformed prices cause revenue calculation errors and inventory stockout misalignments."
+            "domain": "E-Commerce Product Catalog",
+            "purpose": "product tracking and inventory management.",
+            "impact": "Missing product IDs or malformed prices cause inventory errors."
         }
     elif any(k in text_lower for k in ["movie", "show", "netflix", "stream", "film", "duration", "actor", "genre", "rating"]):
         return {
-            "domain": "OTT Digital Entertainment & Media Streaming Platform (e.g., Netflix / Movie Catalog)",
-            "purpose": "predictive content recommendation engines, user engagement modeling, and streaming quality SLA tracking.",
-            "impact": "Inaccurate genre/rating metadata degrades recommendation algorithms and user retention metrics."
+            "domain": "Media Streaming Catalog",
+            "purpose": "content catalog modeling.",
+            "impact": "Inaccurate metadata degrades recommendation algorithms."
         }
     elif any(k in text_lower for k in ["payment", "bank", "account", "transaction", "transfer", "amount", "credit", "ledger", "balance"]):
         return {
-            "domain": "FinTech Banking & Transaction Processing",
-            "purpose": "automated fraud detection, regulatory audit compliance, ledger reconciliation, and sub-second payment settlement pipelines.",
-            "impact": "Unparsed numeric fields or duplicate transaction IDs risk ledger discrepancies and compliance audit breaches."
+            "domain": "Banking & Transaction Data",
+            "purpose": "transaction processing.",
+            "impact": "Unparsed numeric fields risk ledger discrepancies."
         }
     elif any(k in text_lower for k in ["patient", "doctor", "health", "medical", "diagnosis", "hospital", "claim"]):
         return {
-            "domain": "Healthcare Operations & Clinical Telemetry",
-            "purpose": "HIPAA-compliant patient record processing, medical claim verification, and clinical outcome predictive modeling.",
-            "impact": "Missing patient identifiers or malformed records halt critical clinical report generation."
+            "domain": "Healthcare Records",
+            "purpose": "patient record processing.",
+            "impact": "Missing patient identifiers halt clinical reports."
         }
     else:
         return {
-            "domain": "Enterprise Data Infrastructure & System Observability Pipeline",
-            "purpose": "continuous data quality validation, automated incident alerting, schema drift detection, and data warehouse feeding.",
-            "impact": "Schema mismatches and null field injection cause cascading pipeline failures downstream."
+            "domain": "General Data Pipeline",
+            "purpose": "data quality validation.",
+            "impact": "Schema mismatches cause pipeline failures."
         }
 
 def generate_file_ai_summary(file_name: str, file_bytes: bytes, checks_info: Optional[Any] = None) -> Dict[str, Any]:
@@ -323,7 +318,6 @@ Maintain a senior, professional, optimistic tone. Format cleanly using Markdown 
             "text_preview": content_text[:600]
         }
 
-    # Fallback Heuristic Summary (Senior Data Engineer Perspective)
     summary_lower = str(checks_info).lower() + " " + content_text.lower()
     successes = [
         "File byte structure and metadata header parsed successfully.",
@@ -350,12 +344,10 @@ Maintain a senior, professional, optimistic tone. Format cleanly using Markdown 
         rca.append("Dataset is fully validated and cleared for downstream data warehouse loading.")
 
     exec_summary_paragraph = (
-        f"This dataset (**`{file_name}`**) is identified as a high-value data asset belonging to the **{domain_info['domain']}**. "
-        f"It captures essential operational records utilized for {domain_info['purpose']} "
-        f"From a Senior Data Engineering perspective, integrating AI observability for this file enables automated schema drift detection, "
-        f"contextual RAG knowledge extraction, and instant Root Cause Analysis (RCA). "
-        f"Without robust AI monitoring, issues such as {domain_info['impact'].lower()} Implementing this AI intelligence framework guarantees 99.9% pipeline SLA reliability, "
-        f"eliminates manual debugging overhead, and ensures executive analytics dashboards operate on pristine data."
+        f"This dataset (**`{file_name}`**) belongs to the **{domain_info['domain']}**. "
+        f"It captures records utilized for {domain_info['purpose']} "
+        f"Without data monitoring, {domain_info['impact'].lower()} "
+        f"Integrating monitoring for this file enables schema validation and Root Cause Analysis (RCA)."
     )
 
     fallback_md = f"""### Executive Data Summary & Domain Context
@@ -373,7 +365,7 @@ Maintain a senior, professional, optimistic tone. Format cleanly using Markdown 
 {chr(10).join(['- ' + i for i in issues])}
 - **Potential Business Impact:** {domain_info['impact']}
 
-### Senior Engineering Remediation Plan
+### Remediation Plan
 {chr(10).join(['- ' + r for r in rca])}
 
 *(Note: Provide a valid `GEMINI_API_KEY` in `.env` to enable full real-time Google AI Studio Gemini RAG document intelligence)*"""

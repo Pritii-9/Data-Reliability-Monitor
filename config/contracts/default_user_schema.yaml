@@ -1,0 +1,23 @@
+dataset_name: "user_signup_ingestion"
+version: "1.0"
+description: "Data Contract for daily user subscription & signup ingestion batches"
+schema:
+  required_columns:
+    - user_id
+    - email
+    - signup_date
+    - plan_type
+    - total_spent
+rules:
+  null_check:
+    required_non_null:
+      - user_id
+      - email
+  type_check:
+    numeric_columns:
+      - total_spent
+  duplicate_check:
+    unique_key: "user_id"
+  row_count_bounds:
+    min_rows: 1
+    max_rows: 50000

@@ -1,5 +1,5 @@
-from database import SessionLocal, Ticket
-from alerting import send_alert
+from src.db.database import SessionLocal, Ticket
+from src.services.alerting import send_alert
 from datetime import datetime
 import os
 

@@ -1,6 +1,6 @@
 import pytest
 from fastapi.testclient import TestClient
-from api import app
+from src.api.app import app
 
 client = TestClient(app)
 
@@ -30,4 +30,4 @@ def test_api_analyze_upload_failure_ai_rca():
     json_data = response.json()
     assert json_data["status"] == "FAILURE"
     assert json_data["root_cause_analysis"] is not None
-    assert "Pipeline failed" in json_data["root_cause_analysis"]
+    assert "Primary Root Cause" in json_data["root_cause_analysis"]

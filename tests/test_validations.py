@@ -5,7 +5,7 @@ import pytest
 # Add parent directory to path so we can import the pipeline_monitor
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from pipeline_monitor import validate_schema, validate_row_count, validate_nulls, validate_duplicates
+from src.engine.pipeline_monitor import validate_schema, validate_row_count, validate_nulls, validate_duplicates
 
 def test_validate_schema():
     expected = ["user_id", "email", "total_spent"]

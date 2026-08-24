@@ -4,15 +4,15 @@ import pandas as pd
 import requests
 from sqlalchemy import create_engine, text
 from dotenv import load_dotenv
-from ticketing import resolve_ticket, resolve_all_tickets
-from database import SessionLocal, PipelineRun, CheckResult
+from src.services.ticketing import resolve_ticket, resolve_all_tickets
+from src.db.database import SessionLocal, PipelineRun, CheckResult
 import altair as alt
 from datetime import datetime
 import subprocess
 import sys
 from supabase import create_client, Client
 from streamlit_option_menu import option_menu
-from ai_engine import generate_file_ai_summary, generate_ai_root_cause_analysis
+from src.engine.ai_engine import generate_file_ai_summary, generate_ai_root_cause_analysis
 
 load_dotenv()
 
@@ -272,13 +272,14 @@ with st.sidebar:
                     file_options={"content-type": "text/csv"}
                 )
                 
-                st.info(f"File pushed to Supabase Cloud: `{file_key}`. Triggering audit...")
+                st.info(f"File pushed to Supabase Cloud: `{file_key}`. Triggering audit in background...")
                 
                 env = os.environ.copy()
                 env["MANUAL_RUN"] = "true"
-                subprocess.run([sys.executable, "pipeline_monitor.py"], env=env)
+                # Fire and forget: Launch the pipeline monitor in the background without blocking the UI
+                subprocess.Popen([sys.executable, "-m", "src.engine.pipeline_monitor"], env=env)
                 
-                st.success("Audit complete! Check Incident Queue and Audit Directory.")
+                st.success("Audit initiated in the background! You can freely navigate while it processes.")
             except Exception as e:
                 st.error(f"Upload failed: {e}")
 

@@ -37,7 +37,7 @@ class PipelineRun(Base):
     timestamp = Column(DateTime, default=datetime.utcnow)
     file_name = Column(String, default="N/A")
     storage_location = Column(String, default="landing/")
-    status = Column(String) # e.g., 'SUCCESS', 'FAILURE'
+    status = Column(String)  # e.g., 'SUCCESS', 'FAILURE'
     total_checks = Column(Integer, default=0)
     passed_checks = Column(Integer, default=0)
     failed_checks = Column(Integer, default=0)
@@ -51,9 +51,9 @@ class CheckResult(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     run_id = Column(Integer, ForeignKey("pipeline_runs.id"))
-    check_name = Column(String) # e.g., 'schema_validation', 'null_check'
-    status = Column(String) # 'PASS' or 'FAIL'
-    details = Column(Text) # Additional context, like which columns failed
+    check_name = Column(String)  # e.g., 'schema_validation', 'null_check'
+    status = Column(String)  # 'PASS' or 'FAIL'
+    details = Column(Text)  # Additional context, like which columns failed
     timestamp = Column(DateTime, default=datetime.utcnow)
 
     run = relationship("PipelineRun", back_populates="check_results")
@@ -65,8 +65,8 @@ class Ticket(Base):
     id = Column(Integer, primary_key=True, index=True)
     title = Column(String, index=True)
     description = Column(Text)
-    severity = Column(String) # 'LOW', 'MEDIUM', 'HIGH'
-    status = Column(String, default="OPEN") # 'OPEN', 'IN_PROGRESS', 'RESOLVED'
+    severity = Column(String)  # 'LOW', 'MEDIUM', 'HIGH'
+    status = Column(String, default="OPEN")  # 'OPEN', 'IN_PROGRESS', 'RESOLVED'
     created_at = Column(DateTime, default=datetime.utcnow)
     resolved_at = Column(DateTime, nullable=True)
 
@@ -81,7 +81,7 @@ def init_db():
                 try:
                     conn.execute(f"ALTER TABLE pipeline_runs ADD COLUMN {col} VARCHAR DEFAULT '{default_val}'")
                 except Exception:
-                    pass # Column already exists
+                    pass  # Column already exists
 
 def get_session():
     """Yield a database session."""
