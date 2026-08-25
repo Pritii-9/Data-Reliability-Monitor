@@ -1,84 +1,146 @@
-# 🛡️ Data Reliability Control Center
+# Validata — Data Validation & Reconciliation Engine
 
-A decoupled application designed for automated data pipeline monitoring, real-time quality validation, AI-powered Root Cause Analysis (RCA), and incident queue management. Built to demonstrate core **Data Engineering**, **Data Observability (SLA/MTTR)**, and **Production Support Architecture**.
+Validata is an enterprise-grade Data Reliability and Ledger Reconciliation platform. It continuously validates and audit-checks transaction ledger migrations between legacy databases and new core ledgers. 
+
+The engine processes transaction data in **Snowflake**, automatically highlights discrepancies (e.g., amount drift, state mismatch, missing records), explains root causes using **Google Gemini LLM**, and provides an interactive control center.
 
 ---
 
-## 🏗️ Decoupled Architecture
+## 🏗️ System Architecture & Data Flow
 
 ```text
-               +-------------------------------------------------------+
-               |                  Local Data Storage                   |
-               |             (Landing / Processed / Quarantine)        |
-               +-------------------------------------------------------+
-                                           |
-                                           v
-   +-------------------------------------------------------------------------------+
-   |                             FastAPI Engine (Port 8000)                        |
-   |   - REST Ingestion API (/analyze-upload)                                      |
-   |   - Automated Validation: Schema Drift, Null Bounds, Row Count Anomalies     |
-   |   - AI-Driven Root Cause Analysis (LLM / OpenAI + Fallback Heuristics)       |
-   +-------------------------------------------------------------------------------+
-                       |                                       |
-                       v                                       v
-         +--------------------------+             +--------------------------+
-         |  PostgreSQL / SQLite DB  |             |  Incident Queue System   |
-         |  (Runs, Check Results)   |             |  (Auto Ticket + Alerts)  |
-         +--------------------------+             +--------------------------+
-                       ^                                       ^
-                       |                                       |
-   +-------------------------------------------------------------------------------+
-   |                            Streamlit Control Center                           |
-   |   - Deep Multi-Field Audit Search Engine (File, ID, Check, Details)           |
-   |   - Direct SQL Rollbacks & Confirmation Popovers                              |
-   +-------------------------------------------------------------------------------+
+  [ Legacy Ledger ]           [ New System Ledger ]
+         │                              │
+         └──────────────┬───────────────┘
+                        │ Ingestion (simulate_transactions)
+                        v
+         ┌──────────────────────────────┐
+         │     Snowflake Data Lake      │
+         │  (ValiData_DB.CURATED_SCHEMA)│
+         └──────────────┬───────────────┘
+                        │
+                        │ SQL Queries
+                        v
+   +─────────────────────────────────────────+
+   │        FastAPI Backend Engine           │
+   │  - Reconciles & classifies transactions │
+   │  - Queries metrics, trends, anomalies   │
+   │  - Analyzes root causes via Gemini 3.6  │
+   +────────────────────┬────────────────────+
+                        │
+            JSON REST   │   Websocket
+               APIs     │     Chat
+                        v
+   +─────────────────────────────────────────+
+   │     Vite + React Dashboard Client       │
+   │  - Monochromatic Charcoal & Cobalt UI   │
+   │  - Live status indicators & KPI trends  │
+   │  - Search, Filter & Audit PDF export    │
+   │  - Conversational AI Copilot Chat panel │
+   +─────────────────────────────────────────+
 ```
 
 ---
 
-## 🛠️ Key Capabilities & Features
+## 📸 Application Dashboards & Observability
 
-* **⚡ Decoupled Backend API**: FastAPI engine handling file ingestion, validation rule evaluation, and RCA payload generation.
-* **🤖 Automated AI Root Cause Analysis (RCA)**: Integrated LLM engine supporting **Google AI Studio API Key (`GEMINI_API_KEY`)**, Gemini models, OpenAI fallback, and an intelligent rule-based heuristic engine for instant troubleshooting.
-* **🛡️ Data Observability & SLA Tracking**: Monitoring of pass-rate compliance, pipeline latency, and Mean Time to Resolution (MTTR).
-* **🔍 Deep Multi-Field Audit Search**: Multi-field search across execution IDs, file names, check names, and error details.
+Here are key screenshots of the Validata Control Center:
+
+### 1. Dashboard Overview
+![Dashboard Overview](docs/images/dashboard.png)
+
+### 2. Search & Reconciliation Results
+![Reconciliation Results](docs/images/results.png)
+
+### 3. AI Copilot Panel
+![AI Copilot Panel](docs/images/copilot.png)
+
+### 4. AI Audit Report
+![AI Audit Report](docs/images/audit_report.png)
 
 ---
 
-## 💻 Tech Stack
+## 🎯 Discrepancy Classification Model
 
-* **Backend API**: Python 3.11+, FastAPI, Uvicorn, Pydantic
-* **Observability UI**: Streamlit, Altair
-* **Storage & DB**: Local Storage, SQLAlchemy, SQLite (Default) / PostgreSQL
-* **Quality Engine**: Pandas, Automated Rule Validation Suite
-* **Testing & CI**: Pytest, GitHub Actions
+The reconciliation engine flags every ledger pair into one of five categories:
+* **`MATCH`**: Identical records, transactions match in amount, currency, and posting status.
+* **`AMOUNT_MISMATCH`**: Transaction is present in both ledgers, but currency/amount fields drift.
+* **`STATUS_MISMATCH`**: Transaction exists in both ledgers, but transaction statuses mismatch (e.g. `PENDING` vs `SETTLED`).
+* **`MISSING`**: Present in the legacy ledger but absent from the new system.
+* **`PHANTOM`**: Present in the new system but absent from the legacy ledger.
 
 ---
 
-## 🚀 Getting Started
+## 📂 Repository Structure
 
-### 1. Environment Setup
-Copy `.env.example` to `.env` and configure credentials:
+The project is structured as a clean, consolidated monorepo:
+
+```bash
+Validata — Data Validation Engine/
+├── backend/                   # 🐍 Python / FastAPI Service
+│   ├── config/                # YAML Data Contract schemas
+│   ├── data/                  # Ingestion temp directories
+│   ├── database/              # SQL setups and Snowflake schemas
+│   ├── notebooks/             # Data exploration logs
+│   ├── runbooks/              # Compliance operations SOPs
+│   ├── scripts/               # Transaction simulator scripts
+│   ├── src/                   # Core Python logic (db, engine, services, utils)
+│   ├── tests/                 # Unit & integration test suites
+│   ├── venv/                  # Local python virtual environment
+│   ├── main.py                # FastAPI server entrypoint
+│   └── requirements.txt       # Frozen direct dependencies
+├── frontend/                  # ⚛️ React / Vite / Tailwind UI
+│   ├── src/                   # Components, pages, and context
+│   ├── package.json           # Node dependencies
+│   └── vite.config.ts         # Vite server & proxy configurations
+├── .env                       # Combined environment secrets
+├── docker-compose.yml         # Container definitions
+└── README.md                  # System documentation
+```
+
+---
+
+## 🚀 Installation & Local Development
+
+### 1. Configure Environments
+Copy the environment template file at the root:
 ```bash
 cp .env.example .env
 ```
+Provide your **Snowflake Credentials** and **`GEMINI_API_KEY`** in the `.env` file.
 
-### 2. Install Dependencies
-```bash
+### 2. Start the Backend API
+Navigate to the `backend/` folder, activate the virtual environment, install requirements, and boot up the server:
+```powershell
+cd backend
+# Create environment (if not already done)
+python -m venv venv
+# Activate environment
+venv\Scripts\Activate.ps1
+# Install dependencies
 pip install -r requirements.txt
+# Run the FastAPI server (Port 8000)
+python -m uvicorn main:app --reload --port 8000
+```
+Verify backend health: `http://localhost:8000/health`.
+
+### 3. Start the Frontend Dashboard
+Navigate to the `frontend/` folder, install Node dependencies, and run the Vite dev server:
+```powershell
+cd frontend
+# Install Node modules
+npm install
+# Run the development server (Port 5173 with proxy to 8000)
+npm run dev
 ```
 
-### 3. Run FastAPI Backend Engine
-```bash
-uvicorn src.api.app:app --reload --port 8000
-```
+---
 
-### 4. Run Streamlit Control Center
-```bash
-streamlit run dashboard.py
-```
+## 🧪 Testing and Quality Control
 
-### 5. Execute Test Suite
-```bash
-python -m pytest tests/
+Unit and API validation tests are isolated within the backend framework and can be run using the local virtual environment:
+
+```powershell
+# Run from workspace root using backend venv
+backend\venv\Scripts\python.exe -m pytest backend\tests\
 ```
