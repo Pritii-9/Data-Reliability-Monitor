@@ -1,44 +1,83 @@
 # Validata — Data Validation & Reconciliation Engine
 
-Validata is an enterprise-grade Data Reliability and Ledger Reconciliation platform. It continuously validates and audit-checks transaction ledger migrations between legacy databases and new core ledgers. 
+Validata is an enterprise-grade Data Reliability and Ledger Reconciliation platform. It continuously validates and audit-checks transaction ledger migrations between legacy databases and new core ledgers.
 
-The engine processes transaction data in **Snowflake**, automatically highlights discrepancies (e.g., amount drift, state mismatch, missing records), explains root causes using **Google Gemini LLM**, and provides an interactive control center.
+The engine leverages an AWS-native PySpark data pipeline via **AWS Glue** and **AWS S3**, loads curated discrepancies (e.g., amount drift, state mismatch, missing records) into **Snowflake**, automatically generates AI-driven root cause explanations using **Google Gemini**, and visualizes them on an interactive dashboard.
 
 ---
 
 ## 🏗️ System Architecture & Data Flow
 
 ```text
-  [ Legacy Ledger ]           [ New System Ledger ]
-         │                              │
-         └──────────────┬───────────────┘
-                        │ Ingestion (simulate_transactions)
-                        v
-         ┌──────────────────────────────┐
-         │     Snowflake Data Lake      │
-         │  (ValiData_DB.CURATED_SCHEMA)│
-         └──────────────┬───────────────┘
-                        │
-                        │ SQL Queries
-                        v
-   +─────────────────────────────────────────+
-   │        FastAPI Backend Engine           │
-   │  - Reconciles & classifies transactions │
-   │  - Queries metrics, trends, anomalies   │
-   │  - Analyzes root causes via Gemini 3.6  │
-   +────────────────────┬────────────────────+
-                        │
-            JSON REST   │   Websocket
-               APIs     │     Chat
-                        v
-   +─────────────────────────────────────────+
-   │     Vite + React Dashboard Client       │
-   │  - Monochromatic Charcoal & Cobalt UI   │
-   │  - Live status indicators & KPI trends  │
-   │  - Search, Filter & Audit PDF export    │
-   │  - Conversational AI Copilot Chat panel │
-   +─────────────────────────────────────────+
+  [ Legacy Ledger ]              [ New System Ledger ]
+         │                                 │
+         ▼ (CSV)                           ▼ (CSV)
+  ┌──────────────────────────────────────────────────┐
+  │              AWS S3 Data Lake (Raw)              │
+  └────────────────────────┬─────────────────────────┘
+                           │
+                           ▼
+  ┌──────────────────────────────────────────────────┐
+  │                 AWS Glue (ETL)                   │
+  │  - 01_extract_raw_data (Bronze Parquet)          │
+  │  - 02_transform_clean_standardize (Silver)       │
+  │  - 03_deduplicate_validate_schema (Validated)    │
+  │  - 04_validation_engine (Gold Reconciliation)    │
+  └────────────────────────┬─────────────────────────┘
+                           │
+                           ▼ (Curated Parquet)
+  ┌──────────────────────────────────────────────────┐
+  │            AWS S3 Data Lake (Curated)            │
+  └────────────────────────┬─────────────────────────┘
+                           │
+                           ▼ (05_load_to_snowflake)
+  ┌──────────────────────────────────────────────────┐
+  │              Snowflake Data Lake                 │
+  │  - (ValiData_DB.CURATED_SCHEMA.RESULTS)          │
+  │  - 06_ai_anomaly_explanation (Gemini 2.0 Flash)  │
+  └────────────────────────┬─────────────────────────┘
+                           │
+                           ▼ SQL Queries
+  ┌──────────────────────────────────────────────────┐
+  │             FastAPI Backend Engine               │
+  │  - Fetches reconciliation metrics & anomalies    │
+  │  - Resolves Snowflake connections & responses    │
+  └────────────────────────┬─────────────────────────┘
+                           │
+                 REST APIs │ WebSocket
+                           ▼
+  ┌──────────────────────────────────────────────────┐
+  │          Vite + React Dashboard Client           │
+  │  - Slate Gray monochromatic high-contrast UI     │
+  │  - Live status indicators & KPI trends           │
+  │  - AI Anomaly Audit findings                     │
+  └──────────────────────────────────────────────────┘
 ```
+
+---
+
+## 📓 AWS Glue & Integration Notebooks (Data Pipeline)
+
+The data validation pipeline is composed of 6 modular notebooks located in `backend/notebooks/`, designed for serverless execution in AWS Glue and integration with Snowflake and Gemini:
+
+1. **`01_extract_raw_data.py`**
+   * **Layer**: Bronze / Raw Ingestion
+   * **Purpose**: Reads raw legacy and new system CSV files from S3, applies schema enforcement (`StructType`), checks for missing/corrupt records, adds ingestion metadata, and writes partitioned Parquet back to S3.
+2. **`02_transform_clean_standardize.py`**
+   * **Layer**: Silver / Cleaned Data
+   * **Purpose**: Standardizes amount precision, trims whitespace, forces uppercase enums, drops intra-file duplicate transactions, and quarantines invalid data directly into S3.
+3. **`03_deduplicate_validate_schema.py`**
+   * **Layer**: Silver / Schema Enforcement
+   * **Purpose**: Enforces critical business rules (not-null checks on required keys, date and amount range validation), tags rows with a status (`PASS`/`WARN`/`FAIL`), and routes violations to S3 quarantine.
+4. **`04_validation_engine.py`**
+   * **Layer**: Gold / Validation Results
+   * **Purpose**: Executes a PySpark `FULL OUTER JOIN` on transaction IDs between legacy and new systems. Classifies results into `MATCH`, `AMOUNT_MISMATCH`, `STATUS_MISMATCH`, `MISSING`, or `PHANTOM`, writing partitioned parquet to S3.
+5. **`05_load_to_snowflake.py`**
+   * **Layer**: Curated Integration
+   * **Purpose**: Uses Snowflake pandas tools (`write_pandas`) to read the curated results from S3 and write them directly into the Snowflake `VALIDATION_RESULTS` table.
+6. **`06_ai_anomaly_explanation.py`**
+   * **Layer**: AI Audit Layer
+   * **Purpose**: Fetches discrepant records from Snowflake and leverages Google Gemini to generate human-readable root cause explanations and remediation steps, saving results back to Snowflake.
 
 ---
 
@@ -100,7 +139,7 @@ Validata — Data Validation Engine/
 
 ---
 
-## 🚀 Installation & Local Development
+## 🚀 Installation, Run Flows & Local Development
 
 ### 1. Configure Environments
 Copy the environment template file at the root:
@@ -109,7 +148,35 @@ cp .env.example .env
 ```
 Provide your **Snowflake Credentials** and **`GEMINI_API_KEY`** in the `.env` file.
 
-### 2. Start the Backend API
+### 2. Execution Flows (Production vs. Local)
+
+#### A. Production Run Flow
+In production, the data processing pipeline is serverless and orchestrated inside AWS:
+1. **Raw Source Logs**: Transactional CSV files are written to the landing S3 directory (`s3://validata-datalake/raw/`).
+2. **AWS Glue ETL**: Run PySpark Glue jobs `01_extract_raw_data.py` through `04_validation_engine.py` to extract, clean, deduplicate, and perform the full outer-join reconciliation.
+3. **Snowflake Ingestion**: Run `05_load_to_snowflake.py` to bulk load the curated parquets into the warehouse `VALIDATION_RESULTS` table.
+4. **AI Observability**: Run `06_ai_anomaly_explanation.py` to trigger LLM analysis and save explanations back into Snowflake.
+
+#### B. Local Simulation Flow (Reconciliation Script Tool)
+To test reconciliation, Snowflake uploads, and AI analysis locally without needing PySpark or AWS, use the local reconciliation script:
+```powershell
+cd backend
+# 1. Activate virtual environment
+.\venv\Scripts\Activate.ps1
+
+# 2. Run the local reconciliation pipeline tool
+# To run full pipeline (Upload to Snowflake + Google Gemini AI):
+python scripts/run_reconciliation.py
+
+# OR to run in offline / mock mode (Writes local CSV and Markdown reports):
+python scripts/run_reconciliation.py --local-only
+
+# OR to test custom files offline:
+python scripts/run_reconciliation.py --legacy path/to/legacy.csv --new path/to/new.csv --local-only
+```
+*This tool cleans and standardizes data fields, reconciles records via a full outer-join, and either pushes them to Snowflake + Gemini or exports local CSV and Markdown reports (under `sample_data/`).*
+
+### 3. Start the Backend API
 Navigate to the `backend/` folder, activate the virtual environment, install requirements, and boot up the server:
 ```powershell
 cd backend
@@ -124,7 +191,7 @@ python -m uvicorn main:app --reload --port 8000
 ```
 Verify backend health: `http://localhost:8000/health`.
 
-### 3. Start the Frontend Dashboard
+### 4. Start the Frontend Dashboard
 Navigate to the `frontend/` folder, install Node dependencies, and run the Vite dev server:
 ```powershell
 cd frontend
@@ -133,6 +200,7 @@ npm install
 # Run the development server (Port 5173 with proxy to 8000)
 npm run dev
 ```
+
 
 ---
 

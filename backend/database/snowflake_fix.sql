@@ -103,7 +103,7 @@ CREATE TABLE AUDIT_LOG (
 
 
 -- ─────────────────────────────────────────────────────────────────────────────
--- FIX 4: Create service user for Databricks connection
+-- FIX 4: Create service user for AWS Glue connection
 -- ─────────────────────────────────────────────────────────────────────────────
 
 CREATE USER IF NOT EXISTS VALIDATA_SVC_USER
@@ -112,7 +112,7 @@ CREATE USER IF NOT EXISTS VALIDATA_SVC_USER
     DEFAULT_WAREHOUSE    = COMPUTE_WH
     DEFAULT_NAMESPACE    = ValiData_DB.CURATED_SCHEMA
     MUST_CHANGE_PASSWORD = FALSE
-    COMMENT              = 'Service account for Validata Databricks pipeline';
+    COMMENT              = 'Service account for Validata AWS Glue pipeline';
 
 GRANT USAGE ON WAREHOUSE COMPUTE_WH TO USER VALIDATA_SVC_USER;
 GRANT USAGE ON DATABASE  ValiData_DB TO USER VALIDATA_SVC_USER;

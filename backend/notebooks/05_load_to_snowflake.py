@@ -1,19 +1,31 @@
+# =============================================================================
+#  Validata — Data Validation Engine
+#  AWS Integration Notebook: 05_load_to_snowflake
+#  Layer  : Curated Integration
+#  Source : s3://validata-datalake/curated/validation_results/
+#  Dest   : Snowflake (ValiData_DB.CURATED_SCHEMA.VALIDATION_RESULTS)
+#  Stack  : AWS S3 + AWS Glue (PySpark) + Snowflake + Google Gemini
+# =============================================================================
+
+import os
 import pandas as pd
 import snowflake.connector
 from snowflake.connector.pandas_tools import write_pandas
-
-import os
 from dotenv import load_dotenv
 
 load_dotenv()
 
-# --- NATIVE AWS S3 PATHS ---
+# --- S3 CONFIGURATION ---
 BUCKET = "s3://validata-datalake"
 CURATED_RESULTS_PATH = f"{BUCKET}/curated/validation_results/"
 
 # --- SNOWFLAKE CREDENTIALS ---
-SF_ACCOUNT   = "ue74066.ap-southeast-7.aws"
-SF_PASSWORD  = "ValidataP!p3line2026"
+SF_ACCOUNT   = os.getenv("SF_ACCOUNT", "ue74066.ap-southeast-7.aws")
+SF_PASSWORD  = os.getenv("SF_PASSWORD", "ValidataP!p3line2026")
+SF_USER      = os.getenv("SF_USER", "VALIDATA_SVC_USER")
+SF_DATABASE  = os.getenv("SF_DATABASE", "ValiData_DB")
+SF_WAREHOUSE = os.getenv("SF_WAREHOUSE", "COMPUTE_WH")
+SF_SCHEMA    = os.getenv("SF_SCHEMA_CURATED", "CURATED_SCHEMA")
 
 s3_options = {
     "key": os.getenv("AWS_ACCESS_KEY_ID"),
@@ -21,7 +33,6 @@ s3_options = {
 }
 
 print("1. Reading curated results directly from S3...")
-# Pandas natively reads Parquet from S3! No PySpark needed.
 pdf_results = pd.read_parquet(CURATED_RESULTS_PATH, storage_options=s3_options)
 
 # Snowflake strictly expects UPPERCASE column names
@@ -29,12 +40,12 @@ pdf_results.columns = [col.upper() for col in pdf_results.columns]
 
 print("2. Connecting to Snowflake...")
 conn = snowflake.connector.connect(
-    user="VALIDATA_SVC_USER",
+    user=SF_USER,
     password=SF_PASSWORD,
     account=SF_ACCOUNT,
-    warehouse="COMPUTE_WH",
-    database="ValiData_DB",
-    schema="CURATED_SCHEMA"
+    warehouse=SF_WAREHOUSE,
+    database=SF_DATABASE,
+    schema=SF_SCHEMA
 )
 
 cursor = conn.cursor()

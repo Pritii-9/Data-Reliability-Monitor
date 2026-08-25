@@ -139,7 +139,7 @@ CREATE TABLE audit_log (
 
 
 -- ─────────────────────────────────────────────────────────────────────────────
--- PART 6 — SERVICE USER FOR DATABRICKS
+-- PART 6 — SERVICE USER FOR AWS GLUE
 -- ─────────────────────────────────────────────────────────────────────────────
 -- IMPORTANT: Change the password before running this section
 
@@ -152,7 +152,7 @@ CREATE USER VALIDATA_SVC_USER
     DEFAULT_WAREHOUSE    = COMPUTE_WH
     DEFAULT_NAMESPACE    = ValiData_DB.CURATED_SCHEMA
     MUST_CHANGE_PASSWORD = FALSE
-    COMMENT              = 'Databricks pipeline service account';
+    COMMENT              = 'AWS Glue pipeline service account';
 
 -- Switch back to SYSADMIN for grants
 USE ROLE SYSADMIN;

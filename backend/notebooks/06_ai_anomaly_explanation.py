@@ -1,8 +1,9 @@
 # =============================================================================
 #  Validata — Data Validation Engine
-#  Notebook: 06_ai_anomaly_explanation
-#  AI Layer : Google Gemini 2.0 Flash
-#  Source   : ValiData_DB.CURATED_SCHEMA.VALIDATION_RESULTS
+#  AI Observability Notebook: 06_ai_anomaly_explanation
+#  Layer  : AI Audit Layer
+#  Source : Snowflake (ValiData_DB.CURATED_SCHEMA.VALIDATION_RESULTS)
+#  Stack  : AWS S3 + AWS Glue (PySpark) + Snowflake + Google Gemini
 # =============================================================================
 
 import os, time
@@ -15,8 +16,12 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # --- CREDENTIALS ---
-SF_ACCOUNT     = "ue74066.ap-southeast-7.aws"
-SF_PASSWORD    = "ValidataP!p3line2026"
+SF_ACCOUNT     = os.getenv("SF_ACCOUNT", "ue74066.ap-southeast-7.aws")
+SF_PASSWORD    = os.getenv("SF_PASSWORD", "ValidataP!p3line2026")
+SF_USER        = os.getenv("SF_USER", "VALIDATA_SVC_USER")
+SF_DATABASE    = os.getenv("SF_DATABASE", "ValiData_DB")
+SF_WAREHOUSE   = os.getenv("SF_WAREHOUSE", "COMPUTE_WH")
+SF_SCHEMA      = os.getenv("SF_SCHEMA_CURATED", "CURATED_SCHEMA")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
 print(f"Using Gemini API key: {GEMINI_API_KEY[:10]}...")
@@ -29,15 +34,15 @@ print("=" * 60)
 
 # 1. Connect to Snowflake
 conn = snowflake.connector.connect(
-    user="VALIDATA_SVC_USER",
+    user=SF_USER,
     password=SF_PASSWORD,
     account=SF_ACCOUNT,
-    warehouse="COMPUTE_WH",
-    database="ValiData_DB",
-    schema="CURATED_SCHEMA"
+    warehouse=SF_WAREHOUSE,
+    database=SF_DATABASE,
+    schema=SF_SCHEMA
 )
 
-# 2. Fetch mismatch rows using native cursor (avoids Pandas timestamp bug)
+# 2. Fetch mismatch rows using native cursor
 cursor = conn.cursor()
 statuses_sql = ", ".join([f"'{s}'" for s in EXPLAIN_STATUSES])
 cursor.execute(f"""
