@@ -34,7 +34,7 @@ The engine leverages an AWS-native PySpark data pipeline via **AWS Glue** and **
   ┌──────────────────────────────────────────────────┐
   │              Snowflake Data Lake                 │
   │  - (ValiData_DB.CURATED_SCHEMA.RESULTS)          │
-  │  - 06_ai_anomaly_explanation (Gemini 2.0 Flash)  │
+  │  - 06_ai_anomaly_explanation (Gemini 3.5 Flash-lite)│
   └────────────────────────┬─────────────────────────┘
                            │
                            ▼ SQL Queries
