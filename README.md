@@ -86,16 +86,16 @@ The data validation pipeline is composed of 6 modular notebooks located in `back
 Here are key screenshots of the Validata Control Center:
 
 ### 1. Dashboard Overview
-![Dashboard Overview](docs/images/dashboard.png)
+![Dashboard Overview](docs/images/dashboard.png?v=2)
 
 ### 2. Search & Reconciliation Results
-![Reconciliation Results](docs/images/results.png)
+![Reconciliation Results](docs/images/results.png?v=2)
 
 ### 3. AI Copilot Panel
-![AI Copilot Panel](docs/images/copilot.png)
+![AI Copilot Panel](docs/images/copilot.png?v=2)
 
 ### 4. AI Audit Report
-![AI Audit Report](docs/images/audit_report.png)
+![AI Audit Report](docs/images/audit_report.png?v=2)
 
 ---
 
