@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import axios from 'axios'
+import apiClient from '../services/api'
 import { Bot, AlertTriangle, XCircle, ArrowRightLeft, Ghost, Download, RefreshCw, Database } from 'lucide-react'
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
@@ -81,9 +81,10 @@ export default function AuditReport() {
   const [loading, setLoading] = useState(true)
   const [filter, setFilter] = useState('ALL')
 
-  const fetchData = (silent = false) => {
+  const fetchData = (silent = false, force = false) => {
     if (!silent) setLoading(true)
-    axios.get('/api/anomalies')
+    const suffix = force ? '?refresh=true' : ''
+    apiClient.get(`/api/anomalies${suffix}`)
       .then(r => {
         setAnomalies(r.data)
         if (silent) toast('Anomaly logs synchronized ✓', 'success')
@@ -127,7 +128,7 @@ export default function AuditReport() {
           : 'No AI explanation',
       ]),
       styles: { fontSize: 7, cellPadding: 3, textColor: [51, 65, 85] },
-      headStyles: { fillColor: [29, 78, 216], textColor: 255, fontStyle: 'bold', fontSize: 8 },
+      headStyles: { fillColor: [15, 23, 42], textColor: 255, fontStyle: 'bold', fontSize: 8 },
       alternateRowStyles: { fillColor: [248, 250, 252] },
       columnStyles: { 10: { cellWidth: 60 } },
     })
@@ -170,7 +171,7 @@ export default function AuditReport() {
 
           <button
             id="audit-refresh"
-            onClick={() => fetchData(true)}
+            onClick={() => fetchData(true, true)}
             className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-md border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 transition-all"
           >
             <RefreshCw size={12} /> Sync

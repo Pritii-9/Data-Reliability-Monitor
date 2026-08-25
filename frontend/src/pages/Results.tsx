@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef, useCallback } from 'react'
-import axios from 'axios'
+import apiClient from '../services/api'
 import { Search, Download, RefreshCw, ChevronUp, ChevronDown, ChevronRight, Database } from 'lucide-react'
 import { toast } from '../components/Toast'
 
@@ -97,10 +97,17 @@ export default function Results() {
   const [expandedRow, setExpandedRow] = useState<string | null>(null)
   const searchRef = useRef<HTMLInputElement>(null)
 
-  const fetchData = useCallback((silent = false) => {
+  const fetchData = useCallback((silent = false, force = false) => {
     if (!silent) setLoading(true)
     setPage(0)
-    axios.get('/api/results', { params: { status: status === 'ALL' ? undefined : status, limit: 1000, offset: 0 } })
+    apiClient.get('/api/results', {
+      params: {
+        status: status === 'ALL' ? undefined : status,
+        limit: 1000,
+        offset: 0,
+        refresh: force ? true : undefined
+      }
+    })
       .then(r => {
         setData(r.data.data)
         setTotal(r.data.total)
@@ -222,7 +229,7 @@ export default function Results() {
 
           <button
             id="results-refresh"
-            onClick={() => fetchData(true)}
+            onClick={() => fetchData(true, true)}
             className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-md border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 transition-all"
           >
             <RefreshCw size={12} /> Sync

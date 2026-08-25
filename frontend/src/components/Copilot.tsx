@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
-import axios from 'axios'
-import { Send, X, Bot, Sparkles, RefreshCw } from 'lucide-react'
+import apiClient from '../services/api'
+import { Send, X, Bot, Sparkles, RefreshCw, Maximize2, Minimize2 } from 'lucide-react'
 
 interface Message {
   role: 'user' | 'assistant'
@@ -9,12 +9,65 @@ interface Message {
 
 export default function Copilot() {
   const [isOpen, setIsOpen] = useState(false)
+  const [isExpanded, setIsExpanded] = useState(false)
   const [messages, setMessages] = useState<Message[]>([
     { role: 'assistant', content: 'Hello! I am your Validata AI Copilot. Ask me anything about current anomalies, match rates, or remediation steps.' }
   ])
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
   const scrollRef = useRef<HTMLDivElement>(null)
+
+  const renderMessageContent = (content: string) => {
+    const codeBlockRegex = /```(sql|bash|javascript|python)?\n([\s\S]*?)```/g
+    const parts = []
+    let lastIndex = 0
+    let match
+
+    while ((match = codeBlockRegex.exec(content)) !== null) {
+      const textBefore = content.substring(lastIndex, match.index)
+      if (textBefore) {
+        parts.push(<span key={lastIndex}>{textBefore}</span>)
+      }
+
+      const language = match[1] || 'sql'
+      const code = match[2].trim()
+      parts.push(
+        <div key={match.index} className="my-2 bg-slate-950 text-slate-100 p-2.5 rounded-lg font-mono text-[10px] relative border border-slate-800 shadow-md select-text">
+          <div className="flex justify-between items-center text-[8px] text-slate-500 font-bold uppercase tracking-wider mb-1.5 border-b border-slate-900 pb-1 select-none">
+            <span>{language} code block</span>
+            <button
+              type="button"
+              onClick={(e) => {
+                e.preventDefault()
+                navigator.clipboard.writeText(code)
+                const btn = e.currentTarget
+                const originalText = btn.innerText
+                btn.innerText = 'COPIED! ✓'
+                btn.style.color = '#10B981'
+                setTimeout(() => {
+                  btn.innerText = originalText
+                  btn.style.color = ''
+                }, 2000)
+              }}
+              className="hover:text-slate-350 font-semibold cursor-pointer transition-colors"
+            >
+              Copy
+            </button>
+          </div>
+          <pre className="overflow-x-auto whitespace-pre-wrap break-all pr-4 select-text">{code}</pre>
+        </div>
+      )
+
+      lastIndex = codeBlockRegex.lastIndex
+    }
+
+    const textAfter = content.substring(lastIndex)
+    if (textAfter) {
+      parts.push(<span key={lastIndex}>{textAfter}</span>)
+    }
+
+    return parts.length > 0 ? parts : content
+  }
 
   const quickQuestions = [
     'Summarize current health',
@@ -43,7 +96,7 @@ export default function Copilot() {
         role: m.role,
         content: m.content
       }))
-      const res = await axios.post('/api/chat', { message: query, history })
+      const res = await apiClient.post('/api/chat', { message: query, history })
       setMessages(prev => [...prev, { role: 'assistant', content: res.data.reply }])
     } catch (e) {
       setMessages(prev => [
@@ -70,7 +123,9 @@ export default function Copilot() {
 
       {/* Chat Window Panel */}
       {isOpen && (
-        <div className="bg-white border border-slate-200/80 rounded-xl shadow-2xl w-80 sm:w-96 h-[460px] flex flex-col overflow-hidden animate-in slide-in-from-bottom-5 duration-200">
+        <div className={`bg-white border border-slate-200/80 rounded-xl shadow-2xl flex flex-col overflow-hidden animate-in slide-in-from-bottom-5 duration-200 transition-all duration-300 ${
+          isExpanded ? 'w-[90vw] md:w-[750px] lg:w-[950px] h-[80vh]' : 'w-80 sm:w-96 h-[460px]'
+        }`}>
           {/* Header */}
           <div className="bg-slate-900 px-4 py-3 flex items-center justify-between border-b border-slate-800">
             <div className="flex items-center gap-2">
@@ -86,12 +141,26 @@ export default function Copilot() {
                 </div>
               </div>
             </div>
-            <button
-              onClick={() => setIsOpen(false)}
-              className="p-1 rounded hover:bg-slate-800 text-slate-400 hover:text-slate-200 transition-colors"
-            >
-              <X size={14} />
-            </button>
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => setIsExpanded(prev => !prev)}
+                className="p-1 rounded hover:bg-slate-800 text-slate-400 hover:text-slate-200 transition-colors"
+                title={isExpanded ? "Minimize Chat" : "Maximize Chat"}
+              >
+                {isExpanded ? <Minimize2 size={13} /> : <Maximize2 size={13} />}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsOpen(false)
+                  setIsExpanded(false)
+                }}
+                className="p-1 rounded hover:bg-slate-800 text-slate-400 hover:text-slate-200 transition-colors"
+              >
+                <X size={14} />
+              </button>
+            </div>
           </div>
 
           {/* Messages container */}
@@ -112,11 +181,11 @@ export default function Copilot() {
                 <div
                   className={`rounded-lg px-3 py-2 text-xs font-semibold leading-relaxed shadow-sm ${
                     m.role === 'user'
-                      ? 'bg-blue-600 text-white border border-blue-700/20 rounded-tr-none'
-                      : 'bg-white text-slate-600 border border-slate-200/60 rounded-tl-none'
+                      ? 'bg-blue-600 text-white border border-blue-700/20 rounded-tr-none select-text'
+                      : 'bg-white text-slate-600 border border-slate-200/60 rounded-tl-none select-text'
                   }`}
                 >
-                  {m.content}
+                  {renderMessageContent(m.content)}
                 </div>
               </div>
             ))}

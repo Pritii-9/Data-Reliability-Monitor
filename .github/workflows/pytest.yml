@@ -10,13 +10,6 @@ jobs:
   test:
     runs-on: ubuntu-latest
     
-    # We must inject mock environment variables here! 
-    # Otherwise, the Supabase client will crash on import because there is no .env file in the cloud runner.
-    env:
-      SUPABASE_URL: "https://mockproject.supabase.co"
-      SUPABASE_SECRET_KEY: "mock_key"
-      S3_BUCKET_NAME: "data-pipeline-bucket"
-
     steps:
     - name: Checkout Repository
       uses: actions/checkout@v4

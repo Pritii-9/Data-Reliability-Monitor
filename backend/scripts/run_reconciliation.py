@@ -33,13 +33,17 @@ NEW_SYS_CSV_PATH = args.new
 AMOUNT_TOLERANCE_PCT = 0.001  # 0.1%
 
 # --- SNOWFLAKE CREDENTIALS ---
-SF_ACCOUNT = os.getenv("SF_ACCOUNT", "ue74066.ap-southeast-7.aws")
-SF_PASSWORD = os.getenv("SF_PASSWORD", "ValidataP!p3line2026")
-SF_USER = os.getenv("SF_USER", "VALIDATA_SVC_USER")
-SF_DATABASE = os.getenv("SF_DATABASE", "ValiData_DB")
-SF_WAREHOUSE = os.getenv("SF_WAREHOUSE", "COMPUTE_WH")
-SF_SCHEMA = os.getenv("SF_SCHEMA_CURATED", "CURATED_SCHEMA")
+SF_ACCOUNT = os.getenv("SF_ACCOUNT")
+SF_PASSWORD = os.getenv("SF_PASSWORD")
+SF_USER = os.getenv("SF_USER")
+SF_DATABASE = os.getenv("SF_DATABASE")
+SF_WAREHOUSE = os.getenv("SF_WAREHOUSE")
+SF_SCHEMA = os.getenv("SF_SCHEMA_CURATED")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+
+if not args.local_only and not all([SF_ACCOUNT, SF_PASSWORD, SF_USER, SF_DATABASE, SF_WAREHOUSE, SF_SCHEMA]):
+    print("Error: Missing Snowflake connection credentials in environment variables.")
+    sys.exit(1)
 
 print("=" * 60)
 print("  Validata — Local Reconciliation Engine")

@@ -1,5 +1,5 @@
-import { useEffect, useState, useCallback, useRef } from 'react'
-import axios from 'axios'
+import { useEffect, useState, useCallback } from 'react'
+import apiClient from '../services/api'
 import {
   CheckCircle2, AlertTriangle, XCircle, ArrowRightLeft, Ghost, TrendingUp, RefreshCw, Database
 } from 'lucide-react'
@@ -91,14 +91,13 @@ export default function Dashboard() {
   const [summary, setSummary] = useState<Summary | null>(null)
   const [breakdown, setBreakdown] = useState<{ by_region: BreakdownItem[]; by_channel: BreakdownItem[] } | null>(null)
   const [loading, setLoading] = useState(true)
-  const [autoRefresh, setAutoRefresh] = useState(false)
-  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
-  const fetchData = useCallback((silent = false) => {
+  const fetchData = useCallback((silent = false, force = false) => {
     if (!silent) setLoading(true)
+    const suffix = force ? '?refresh=true' : ''
     Promise.all([
-      axios.get('/api/summary'),
-      axios.get('/api/breakdown'),
+      apiClient.get(`/api/summary${suffix}`),
+      apiClient.get(`/api/breakdown${suffix}`),
     ]).then(([s, b]) => {
       setSummary(s.data)
       setBreakdown(b.data)
@@ -109,15 +108,6 @@ export default function Dashboard() {
   useEffect(() => {
     fetchData()
   }, [fetchData])
-
-  useEffect(() => {
-    if (autoRefresh) {
-      intervalRef.current = setInterval(() => fetchData(true), 60000)
-    } else {
-      if (intervalRef.current) clearInterval(intervalRef.current)
-    }
-    return () => { if (intervalRef.current) clearInterval(intervalRef.current) }
-  }, [autoRefresh, fetchData])
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -164,25 +154,10 @@ export default function Dashboard() {
             <Database size={12} className="text-blue-500" />
             <span>ue74066.snowflake</span>
           </div>
-
-          {/* Auto Refresh Toggle */}
-          <button
-            id="auto-refresh-toggle"
-            onClick={() => setAutoRefresh(v => !v)}
-            className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-md border transition-all ${
-              autoRefresh
-                ? 'bg-blue-50 text-blue-600 border-blue-250 shadow-sm shadow-blue-500/5'
-                : 'bg-white text-slate-500 border-slate-200 hover:bg-slate-50'
-            }`}
-          >
-            <RefreshCw size={12} className={autoRefresh ? 'animate-spin' : ''} />
-            {autoRefresh ? 'Auto Live' : 'Auto Off'}
-          </button>
-
           {/* Manual Refresh */}
           <button
             id="manual-refresh"
-            onClick={() => fetchData(true)}
+            onClick={() => fetchData(true, true)}
             className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-md border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 hover:border-slate-300 transition-all"
           >
             <RefreshCw size={12} />

@@ -117,19 +117,19 @@ The project is structured as a clean, consolidated monorepo:
 ```bash
 Validata — Data Validation Engine/
 ├── backend/                   # 🐍 Python / FastAPI Service
-│   ├── config/                # YAML Data Contract schemas
-│   ├── data/                  # Ingestion temp directories
-│   ├── database/              # SQL setups and Snowflake schemas
-│   ├── notebooks/             # Data exploration logs
+│   ├── database/              # SQL setups and Snowflake DDL schemas
+│   ├── notebooks/             # AWS Glue PySpark ETL / AI notebooks
 │   ├── runbooks/              # Compliance operations SOPs
-│   ├── scripts/               # Transaction simulator scripts
-│   ├── src/                   # Core Python logic (db, engine, services, utils)
-│   ├── tests/                 # Unit & integration test suites
+│   ├── scripts/               # Local reconciliation simulator script
+│   ├── src/                   # Core Python logic (api, engine)
+│   │   ├── api/               # Unified FastAPI endpoints & routers
+│   │   └── engine/            # AI Observability engine hooks
+│   ├── tests/                 # API unit & integration test suite
 │   ├── venv/                  # Local python virtual environment
-│   ├── main.py                # FastAPI server entrypoint
+│   ├── main.py                # FastAPI server entrypoint (proxied to src/api/app.py)
 │   └── requirements.txt       # Frozen direct dependencies
 ├── frontend/                  # ⚛️ React / Vite / Tailwind UI
-│   ├── src/                   # Components, pages, and context
+│   ├── src/                   # Components, pages, and API services
 │   ├── package.json           # Node dependencies
 │   └── vite.config.ts         # Vite server & proxy configurations
 ├── .env                       # Combined environment secrets
