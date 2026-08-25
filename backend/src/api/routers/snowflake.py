@@ -139,15 +139,22 @@ def clear_cache():
     return {"status": "success", "message": "Cache cleared."}
 
 @router.get("/summary")
-def get_summary(refresh: bool = Query(False)):
+def get_summary(refresh: bool = Query(False), days: Optional[int] = Query(None)):
+    cache_key = f"summary_{days}"
     if not refresh:
-        cached = db_cache.get("summary")
+        cached = db_cache.get(cache_key)
         if cached is not None:
             return cached
 
     conn = get_conn()
     cur = conn.cursor()
-    cur.execute("""
+    where_clause = ""
+    params = []
+    if days is not None:
+        where_clause = "WHERE validated_at >= DATEADD(day, -%s, CURRENT_TIMESTAMP())"
+        params.append(days)
+
+    cur.execute(f"""
         SELECT
             COUNT(*) AS total,
             SUM(CASE WHEN validation_status = 'MATCH' THEN 1 ELSE 0 END) AS matched,
@@ -157,13 +164,16 @@ def get_summary(refresh: bool = Query(False)):
             SUM(CASE WHEN validation_status = 'PHANTOM' THEN 1 ELSE 0 END) AS phantom,
             ROUND(SUM(CASE WHEN validation_status = 'MATCH' THEN 1 ELSE 0 END) * 100.0 / COUNT(*), 2) AS match_rate
         FROM VALIDATION_RESULTS
-    """)
+        {where_clause}
+    """, params)
     row = cur.fetchone()
     cols = [d[0].lower() for d in cur.description]
     conn.close()
 
-    result = dict(zip(cols, row))
-    db_cache.set("summary", result)
+    result = dict(zip(cols, row)) if row and row[0] is not None else {
+        "total": 0, "matched": 0, "amount_mismatch": 0, "status_mismatch": 0, "missing": 0, "phantom": 0, "match_rate": 100.0
+    }
+    db_cache.set(cache_key, result)
     return result
 
 @router.get("/results")
@@ -172,8 +182,9 @@ def get_results(
     limit: int = Query(200, le=1000),
     offset: int = Query(0),
     refresh: bool = Query(False),
+    days: Optional[int] = Query(None),
 ):
-    cache_key = f"results_{status}_{limit}_{offset}"
+    cache_key = f"results_{status}_{limit}_{offset}_{days}"
     if not refresh:
         cached = db_cache.get(cache_key)
         if cached is not None:
@@ -181,39 +192,33 @@ def get_results(
 
     conn = get_conn()
     cur = conn.cursor()
+    where_clauses = []
+    params = []
 
     if status and status.upper() != "ALL":
-        query = """
-            SELECT
-                txn_id, validation_status, customer_id, currency, region, channel, product_type,
-                legacy_amount, new_system_amount, amount_diff, amount_diff_pct,
-                legacy_status, new_system_status
-            FROM VALIDATION_RESULTS
-            WHERE validation_status = %s
-            ORDER BY validation_status, txn_id
-            LIMIT %s OFFSET %s
-        """
-        cur.execute(query, (status.upper(), limit, offset))
-        rows = cur.fetchall()
-        cols = [d[0].lower() for d in cur.description]
-        cur.execute("SELECT COUNT(*) FROM VALIDATION_RESULTS WHERE validation_status = %s", (status.upper(),))
-        total = cur.fetchone()[0]
-    else:
-        query = """
-            SELECT
-                txn_id, validation_status, customer_id, currency, region, channel, product_type,
-                legacy_amount, new_system_amount, amount_diff, amount_diff_pct,
-                legacy_status, new_system_status
-            FROM VALIDATION_RESULTS
-            ORDER BY validation_status, txn_id
-            LIMIT %s OFFSET %s
-        """
-        cur.execute(query, (limit, offset))
-        rows = cur.fetchall()
-        cols = [d[0].lower() for d in cur.description]
-        cur.execute("SELECT COUNT(*) FROM VALIDATION_RESULTS")
-        total = cur.fetchone()[0]
+        where_clauses.append("validation_status = %s")
+        params.append(status.upper())
+    if days is not None:
+        where_clauses.append("validated_at >= DATEADD(day, -%s, CURRENT_TIMESTAMP())")
+        params.append(days)
 
+    where_sql = "WHERE " + " AND ".join(where_clauses) if where_clauses else ""
+    query = f"""
+        SELECT
+            txn_id, validation_status, customer_id, currency, region, channel, product_type,
+            legacy_amount, new_system_amount, amount_diff, amount_diff_pct,
+            legacy_status, new_system_status
+        FROM VALIDATION_RESULTS
+        {where_sql}
+        ORDER BY validation_status, txn_id
+        LIMIT %s OFFSET %s
+    """
+    cur.execute(query, params + [limit, offset])
+    rows = cur.fetchall()
+    cols = [d[0].lower() for d in cur.description]
+
+    cur.execute(f"SELECT COUNT(*) FROM VALIDATION_RESULTS {where_sql}", params)
+    total = cur.fetchone()[0]
     conn.close()
 
     result = {
@@ -226,55 +231,71 @@ def get_results(
     return result
 
 @router.get("/anomalies")
-def get_anomalies(refresh: bool = Query(False)):
+def get_anomalies(refresh: bool = Query(False), days: Optional[int] = Query(None)):
+    cache_key = f"anomalies_{days}"
     if not refresh:
-        cached = db_cache.get("anomalies")
+        cached = db_cache.get(cache_key)
         if cached is not None:
             return cached
 
     conn = get_conn()
     cur = conn.cursor()
-    cur.execute("""
+    where_clause = "WHERE validation_status != 'MATCH'"
+    params = []
+    if days is not None:
+        where_clause += " AND validated_at >= DATEADD(day, -%s, CURRENT_TIMESTAMP())"
+        params.append(days)
+
+    cur.execute(f"""
         SELECT
             txn_id, validation_status, currency, region, channel,
             legacy_amount, new_system_amount, amount_diff_pct,
             legacy_status, new_system_status,
             ai_explanation
         FROM VALIDATION_RESULTS
-        WHERE validation_status != 'MATCH'
+        {where_clause}
         ORDER BY validation_status, txn_id
-    """)
+    """, params)
     rows = cur.fetchall()
     cols = [d[0].lower() for d in cur.description]
     conn.close()
 
     result = [dict(zip(cols, r)) for r in rows]
-    db_cache.set("anomalies", result)
+    db_cache.set(cache_key, result)
     return result
 
 @router.get("/breakdown")
-def get_breakdown(refresh: bool = Query(False)):
+def get_breakdown(refresh: bool = Query(False), days: Optional[int] = Query(None)):
+    cache_key = f"breakdown_{days}"
     if not refresh:
-        cached = db_cache.get("breakdown")
+        cached = db_cache.get(cache_key)
         if cached is not None:
             return cached
 
     conn = get_conn()
     cur = conn.cursor()
-    cur.execute("""
+    where_clause = ""
+    params = []
+    if days is not None:
+        where_clause = "WHERE validated_at >= DATEADD(day, -%s, CURRENT_TIMESTAMP())"
+        params.append(days)
+
+    cur.execute(f"""
         SELECT region, validation_status, COUNT(*) as count
         FROM VALIDATION_RESULTS
+        {where_clause}
         GROUP BY region, validation_status
         ORDER BY region, validation_status
-    """)
+    """, params)
     region_rows = cur.fetchall()
 
-    cur.execute("""
+    cur.execute(f"""
         SELECT channel, validation_status, COUNT(*) as count
         FROM VALIDATION_RESULTS
+        {where_clause}
         GROUP BY channel, validation_status
         ORDER BY channel, validation_status
-    """)
+    """, params)
     channel_rows = cur.fetchall()
     conn.close()
 
@@ -282,7 +303,7 @@ def get_breakdown(refresh: bool = Query(False)):
         "by_region": [{"region": r[0], "status": r[1], "count": r[2]} for r in region_rows],
         "by_channel": [{"channel": r[0], "status": r[1], "count": r[2]} for r in channel_rows],
     }
-    db_cache.set("breakdown", result)
+    db_cache.set(cache_key, result)
     return result
 
 class ChatRequest(BaseModel):
@@ -298,11 +319,11 @@ def ai_chat(req: ChatRequest):
         cur.execute("""
             SELECT
                 COUNT(*) AS total,
-                SUM(CASE WHEN validation_status = 'MATCH' THEN 1 ELSE 0 END) AS matched,
-                SUM(CASE WHEN validation_status = 'AMOUNT_MISMATCH' THEN 1 ELSE 0 END) AS amount_mismatch,
-                SUM(CASE WHEN validation_status = 'STATUS_MISMATCH' THEN 1 ELSE 0 END) AS status_mismatch,
-                SUM(CASE WHEN validation_status = 'MISSING' THEN 1 ELSE 0 END) AS missing,
-                SUM(CASE WHEN validation_status = 'PHANTOM' THEN 1 ELSE 0 END) AS phantom
+                COALESCE(SUM(CASE WHEN validation_status = 'MATCH' THEN 1 ELSE 0 END), 0) AS matched,
+                COALESCE(SUM(CASE WHEN validation_status = 'AMOUNT_MISMATCH' THEN 1 ELSE 0 END), 0) AS amount_mismatch,
+                COALESCE(SUM(CASE WHEN validation_status = 'STATUS_MISMATCH' THEN 1 ELSE 0 END), 0) AS status_mismatch,
+                COALESCE(SUM(CASE WHEN validation_status = 'MISSING' THEN 1 ELSE 0 END), 0) AS missing,
+                COALESCE(SUM(CASE WHEN validation_status = 'PHANTOM' THEN 1 ELSE 0 END), 0) AS phantom
             FROM VALIDATION_RESULTS
         """)
         kpis = cur.fetchone()
@@ -319,7 +340,14 @@ def ai_chat(req: ChatRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Database query failed: {str(e)}")
 
-    kpi_desc = f"Total: {kpis[0]}, Matches: {kpis[1]} ({round(kpis[1]*100.0/kpis[0], 2) if kpis[0] else 0}%), Mismatch: {kpis[2]}, Status: {kpis[3]}, Missing: {kpis[4]}, Phantom: {kpis[5]}."
+    total_val = kpis[0] if kpis and kpis[0] is not None else 0
+    matched_val = kpis[1] if kpis and kpis[1] is not None else 0
+    amt_mismatch_val = kpis[2] if kpis and kpis[2] is not None else 0
+    stat_mismatch_val = kpis[3] if kpis and kpis[3] is not None else 0
+    missing_val = kpis[4] if kpis and kpis[4] is not None else 0
+    phantom_val = kpis[5] if kpis and kpis[5] is not None else 0
+
+    kpi_desc = f"Total: {total_val}, Matches: {matched_val} ({round(matched_val*100.0/total_val, 2) if total_val else 0}%), Mismatch: {amt_mismatch_val}, Status: {stat_mismatch_val}, Missing: {missing_val}, Phantom: {phantom_val}."
     anom_list = []
     for r in anoms:
         diff_val = f"{round(r[6], 2)}%" if r[6] is not None else "0%"
@@ -358,7 +386,7 @@ Guidelines:
         user_prompt = "\n".join(prompts)
 
         response = client.models.generate_content(
-            model="gemini-3.6-flash",
+            model="gemini-3.5-flash-lite",
             contents=user_prompt,
             config={"system_instruction": system_instruction}
         )

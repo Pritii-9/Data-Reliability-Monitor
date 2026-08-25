@@ -91,23 +91,28 @@ export default function Dashboard() {
   const [summary, setSummary] = useState<Summary | null>(null)
   const [breakdown, setBreakdown] = useState<{ by_region: BreakdownItem[]; by_channel: BreakdownItem[] } | null>(null)
   const [loading, setLoading] = useState(true)
+  const [daysFilter, setDaysFilter] = useState<string>('all')
 
-  const fetchData = useCallback((silent = false, force = false) => {
+  const fetchData = useCallback((silent = false, force = false, daysVal = daysFilter) => {
     if (!silent) setLoading(true)
-    const suffix = force ? '?refresh=true' : ''
+    const params = new URLSearchParams()
+    if (daysVal !== 'all') params.append('days', daysVal)
+    if (force) params.append('refresh', 'true')
+    const queryStr = params.toString() ? `?${params.toString()}` : ''
+
     Promise.all([
-      apiClient.get(`/api/summary${suffix}`),
-      apiClient.get(`/api/breakdown${suffix}`),
+      apiClient.get(`/api/summary${queryStr}`),
+      apiClient.get(`/api/breakdown${queryStr}`),
     ]).then(([s, b]) => {
       setSummary(s.data)
       setBreakdown(b.data)
       if (silent) toast('Dashboard data refreshed ✓', 'success')
     }).finally(() => setLoading(false))
-  }, [])
+  }, [daysFilter])
 
   useEffect(() => {
-    fetchData()
-  }, [fetchData])
+    fetchData(false, false, daysFilter)
+  }, [fetchData, daysFilter])
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -154,6 +159,18 @@ export default function Dashboard() {
             <Database size={12} className="text-blue-500" />
             <span>ue74066.snowflake</span>
           </div>
+          {/* Date Filter Dropdown */}
+          <select
+            id="date-filter"
+            value={daysFilter}
+            onChange={(e) => setDaysFilter(e.target.value)}
+            className="px-3 py-1.5 text-xs font-semibold rounded-md border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 hover:border-slate-300 transition-all focus:outline-none"
+          >
+            <option value="all">All Time</option>
+            <option value="1">Today</option>
+            <option value="7">Last 7 Days</option>
+            <option value="30">Last 30 Days</option>
+          </select>
           {/* Manual Refresh */}
           <button
             id="manual-refresh"

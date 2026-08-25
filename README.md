@@ -165,11 +165,11 @@ cd backend
 .\venv\Scripts\Activate.ps1
 
 # 2. Run the local reconciliation pipeline tool
-# To run full pipeline (Upload to Snowflake + Google Gemini AI):
-python scripts/run_reconciliation.py
+# To run full pipeline with default test data (Upload to Snowflake + Google Gemini AI):
+python scripts/run_reconciliation.py --legacy sample_data/test_legacy_transactions.csv --new sample_data/test_new_system_transactions.csv
 
-# OR to run in offline / mock mode (Writes local CSV and Markdown reports):
-python scripts/run_reconciliation.py --local-only
+# OR to run in offline / mock mode:
+python scripts/run_reconciliation.py --local-only --legacy sample_data/test_legacy_transactions.csv --new sample_data/test_new_system_transactions.csv
 
 # OR to test custom files offline:
 python scripts/run_reconciliation.py --legacy path/to/legacy.csv --new path/to/new.csv --local-only

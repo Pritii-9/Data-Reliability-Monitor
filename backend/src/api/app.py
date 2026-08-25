@@ -1,7 +1,19 @@
 import sys
+import os
 import asyncio
+from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+
+# Traverse up to locate and load .env file
+current_dir = os.path.dirname(os.path.abspath(__file__))
+while current_dir != os.path.dirname(current_dir):
+    env_path = os.path.join(current_dir, ".env")
+    if os.path.exists(env_path):
+        load_dotenv(env_path)
+        break
+    current_dir = os.path.dirname(current_dir)
+
 from src.api.routers.snowflake import router as snowflake_router
 
 # Windows event loop policy fix

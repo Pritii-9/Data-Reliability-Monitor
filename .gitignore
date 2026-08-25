@@ -27,3 +27,9 @@ minio_data/
 Thumbs.db
 
 data/
+sample_data/
+
+# Markdown files
+*.md
+!README.md
+!backend/runbooks/*.md

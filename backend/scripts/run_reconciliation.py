@@ -282,12 +282,34 @@ Transaction details:
 
 In exactly 2-3 sentences: explain the likely root cause of this anomaly and recommend one specific remediation action. Be professional and concise."""
 
+        explanation = "Explanation unavailable."
+        max_retries = 5
+        backoff = 2.0
+        for attempt in range(max_retries):
+            try:
+                response = client.models.generate_content(
+                    model="gemini-3.5-flash-lite",
+                    contents=prompt
+                )
+                explanation = response.text.strip()
+                break
+            except Exception as e:
+                err_msg = str(e)
+                print(f"  [WARNING] Attempt {attempt + 1} failed for {txn_id}: {err_msg}")
+                if "429" in err_msg or "RESOURCE_EXHAUSTED" in err_msg:
+                    print("  [INFO] Rate limit hit. Sleeping 60s to reset quota window...")
+                    import time
+                    time.sleep(60.0)
+                elif attempt < max_retries - 1:
+                    import time
+                    time.sleep(backoff)
+                    backoff *= 2.0
+                else:
+                    print(f"  [ERROR] Max retries reached for {txn_id}. Defaulting.")
+        import time
+        time.sleep(3.5)
+        
         try:
-            response = client.models.generate_content(
-                model="gemini-3.6-flash",
-                contents=prompt
-            )
-            explanation = response.text.strip()
             # Escape single quotes for SQL query
             safe_explanation = explanation.replace("'", "''")
             
@@ -299,8 +321,8 @@ In exactly 2-3 sentences: explain the likely root cause of this anomaly and reco
             """
             cursor_update.execute(sql_update)
             print(f"  [OK] Generated and saved explanation for {txn_id}")
-        except Exception as gemini_err:
-            print(f"  [ERROR] Error processing {txn_id}: {gemini_err}")
+        except Exception as db_err:
+            print(f"  [ERROR] DB Error saving explanation for {txn_id}: {db_err}")
             
     print("\nAI Observability enrichment completed successfully.")
 except Exception as e:

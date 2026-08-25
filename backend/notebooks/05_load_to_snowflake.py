@@ -1,11 +1,5 @@
-# =============================================================================
-#  Validata — Data Validation Engine
-#  AWS Integration Notebook: 05_load_to_snowflake
-#  Layer  : Curated Integration
-#  Source : s3://validata-datalake/curated/validation_results/
-#  Dest   : Snowflake (ValiData_DB.CURATED_SCHEMA.VALIDATION_RESULTS)
-#  Stack  : AWS S3 + AWS Glue (PySpark) + Snowflake + Google Gemini
-# =============================================================================
+# Validata — Load to Snowflake
+# Loads final curated validation results from S3 into Snowflake warehouse.
 
 import os
 import pandas as pd
@@ -15,11 +9,11 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# --- S3 CONFIGURATION ---
+# S3 configuration
 BUCKET = "s3://validata-datalake"
 CURATED_RESULTS_PATH = f"{BUCKET}/curated/validation_results/"
 
-# --- SNOWFLAKE CREDENTIALS ---
+# Snowflake credentials
 SF_ACCOUNT   = os.getenv("SF_ACCOUNT", "ue74066.ap-southeast-7.aws")
 SF_PASSWORD  = os.getenv("SF_PASSWORD", "ValidataP!p3line2026")
 SF_USER      = os.getenv("SF_USER", "VALIDATA_SVC_USER")
@@ -32,26 +26,24 @@ s3_options = {
     "secret": os.getenv("AWS_SECRET_ACCESS_KEY")
 }
 
-print("1. Reading curated results directly from S3...")
+# Load parquet results from S3 and format column titles
 pdf_results = pd.read_parquet(CURATED_RESULTS_PATH, storage_options=s3_options)
-
-# Snowflake strictly expects UPPERCASE column names
 pdf_results.columns = [col.upper() for col in pdf_results.columns]
 
-print("2. Connecting to Snowflake...")
+# Bulk load to Snowflake database table
 conn = snowflake.connector.connect(
     user=SF_USER,
     password=SF_PASSWORD,
     account=SF_ACCOUNT,
     warehouse=SF_WAREHOUSE,
     database=SF_DATABASE,
-    schema=SF_SCHEMA
+    schema=SF_SCHEMA,
+    role="SYSADMIN"
 )
 
 cursor = conn.cursor()
 cursor.execute("TRUNCATE TABLE VALIDATION_RESULTS")
 
-print("3. Writing data to Snowflake...")
 success, nchunks, nrows, _ = write_pandas(
     conn=conn, 
     df=pdf_results, 
@@ -60,5 +52,5 @@ success, nchunks, nrows, _ = write_pandas(
     quote_identifiers=False
 )
 
-print(f"Notebook 05 Complete! Successfully wrote {nrows} rows directly into Snowflake!")
+print(f"Notebook 05 Complete. Wrote {nrows} rows to Snowflake.")
 conn.close()

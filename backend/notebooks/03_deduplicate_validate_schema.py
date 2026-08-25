@@ -1,36 +1,14 @@
-# =============================================================================
-#  Validata — Data Validation Engine
-#  AWS Glue Notebook: 03_deduplicate_validate_schema
-#  Layer  : Silver / Schema Enforcement
-#  Source : s3://validata-datalake/staging/  (clean Parquet from NB 02)
-#  Dest   : s3://validata-datalake/staging/validated/
-#  Stack  : AWS S3 + AWS Glue (PySpark) + Snowflake + Google Gemini
-# =============================================================================
-#
-# PURPOSE
-# ───────
-# Notebook 02 cleaned individual files in isolation.
-# THIS notebook enforces CROSS-DATASET business rules:
-#   1. NOT-NULL check on required business columns
-#   2. Amount range validation (> 0 and <= 10M)
-#   3. Date range check — txn_date must be within migration window
-#   4. Assign a _row_status (PASS / WARN / FAIL) per row
-#   5. Route FAILs to quarantine; route PASS + WARN to staging/validated/
-# =============================================================================
+# Validata — Cross-Dataset Schema Enforcement (Silver Data)
+# Enforces not-null checks, amount validation range checks, and date window verification.
 
 from functools import reduce
 from pyspark.sql import SparkSession
 from pyspark.sql import functions as F
 from datetime import datetime, timezone
 
-spark = (
-    SparkSession.builder
-    .appName("Validata-03-DeduplicateValidateSchema")
-    .getOrCreate()
-)
-print(f"Spark version: {spark.version}")
+spark = SparkSession.builder.appName("Validata-03-DeduplicateValidateSchema").getOrCreate()
 
-# --- S3 CONFIGURATION ---
+# S3 configurations
 BUCKET             = "s3://validata-datalake"
 STAGING_LEGACY_IN  = f"{BUCKET}/staging/legacy_system/"
 STAGING_NEW_IN     = f"{BUCKET}/staging/new_system/"
@@ -44,94 +22,66 @@ AMOUNT_MAX         = 10_000_000.0
 MIGRATION_DATE_MIN = "2026-01-01"
 MIGRATION_DATE_MAX = "2026-12-31"
 
-# NOT-NULLABLE business columns — NULL in any of these = FAIL row
 NOT_NULL_COLS = ["txn_id", "txn_date", "amount", "currency", "status"]
 
-print("=" * 60)
-print("  Validata — 03 Deduplicate Validate Schema")
-print("=" * 60)
-
-# 1. Read clean staging Parquet
 df_legacy  = spark.read.parquet(STAGING_LEGACY_IN)
 df_new_sys = spark.read.parquet(STAGING_NEW_IN)
 
-print(f"\nLegacy  rows : {df_legacy.count():,}")
-print(f"New sys rows : {df_new_sys.count():,}")
-
-# 2. NOT-NULL enforcement
+# Filter out rows with null in required columns
 def check_not_nulls(df, label: str):
     null_conditions = [F.col(c).isNull() for c in NOT_NULL_COLS]
     any_null        = reduce(lambda a, b: a | b, null_conditions)
-
     null_rows     = df.filter(any_null)
     non_null_rows = df.filter(~any_null)
-
-    print(f"\n[NOT-NULL CHECK] [{label}]")
-    print(f"  Passing  : {non_null_rows.count():,}")
-    print(f"  Failing  : {null_rows.count()} (missing required field)")
     return non_null_rows, null_rows
 
 legacy_nonnull,  legacy_null_fail  = check_not_nulls(df_legacy,  "legacy_system")
 new_sys_nonnull, new_sys_null_fail = check_not_nulls(df_new_sys, "new_system")
 
-# 3. Amount range validation
+# Tag amount ranges (below min = FAIL, above max = WARN)
 def validate_amount_range(df, label: str):
-    df_tagged = df.withColumn(
+    return df.withColumn(
         "_amount_check",
         F.when(F.col("amount") < AMOUNT_MIN,  F.lit("FAIL_BELOW_MIN"))
          .when(F.col("amount") > AMOUNT_MAX,  F.lit("WARN_ABOVE_MAX"))
          .otherwise(                           F.lit("PASS"))
     )
-    print(f"\n[AMOUNT CHECK] [{label}]")
-    df_tagged.groupBy("_amount_check").count().orderBy("_amount_check").show()
-    return df_tagged
 
 legacy_amt  = validate_amount_range(legacy_nonnull,  "legacy_system")
 new_sys_amt = validate_amount_range(new_sys_nonnull, "new_system")
 
-# 4. Date range validation
+# Tag transaction date ranges
 DATE_MIN_COL = F.to_date(F.lit(MIGRATION_DATE_MIN), "yyyy-MM-dd")
 DATE_MAX_COL = F.to_date(F.lit(MIGRATION_DATE_MAX), "yyyy-MM-dd")
 
 def validate_date_range(df, label: str):
-    df_tagged = df.withColumn(
+    return df.withColumn(
         "_date_check",
-        F.when(F.datediff(F.col("txn_date"), DATE_MIN_COL) < 0,
-               F.lit("FAIL_DATE_BEFORE_WINDOW"))
-         .when(F.datediff(DATE_MAX_COL, F.col("txn_date")) < 0,
-               F.lit("FAIL_DATE_AFTER_WINDOW"))
+        F.when(F.datediff(F.col("txn_date"), DATE_MIN_COL) < 0, F.lit("FAIL_DATE_BEFORE_WINDOW"))
+         .when(F.datediff(DATE_MAX_COL, F.col("txn_date")) < 0, F.lit("FAIL_DATE_AFTER_WINDOW"))
          .otherwise(F.lit("PASS"))
     )
-    print(f"\n[DATE CHECK] [{label}]")
-    df_tagged.groupBy("_date_check").count().orderBy("_date_check").show()
-    return df_tagged
 
 legacy_dated  = validate_date_range(legacy_amt,  "legacy_system")
 new_sys_dated = validate_date_range(new_sys_amt, "new_system")
 
-# 5. Combine flags into master _row_status
+# Combine validation checks to a master _row_status column
 def assign_row_status(df, label: str):
-    df_status = df.withColumn(
+    return df.withColumn(
         "_row_status",
         F.when(
-            F.col("_amount_check").startsWith("FAIL") |
-            F.col("_date_check").startsWith("FAIL"),
+            F.col("_amount_check").startsWith("FAIL") | F.col("_date_check").startsWith("FAIL"),
             F.lit("FAIL")
         ).when(
-            F.col("_amount_check").startsWith("WARN") |
-            F.col("_date_check").startsWith("WARN"),
+            F.col("_amount_check").startsWith("WARN") | F.col("_date_check").startsWith("WARN"),
             F.lit("WARN")
         ).otherwise(F.lit("PASS"))
     ).drop("_amount_check", "_date_check")
 
-    print(f"\n[ROW STATUS] [{label}]")
-    df_status.groupBy("_row_status").count().show()
-    return df_status
-
 legacy_status  = assign_row_status(legacy_dated,  "legacy_system")
 new_sys_status = assign_row_status(new_sys_dated, "new_system")
 
-# 6. Split PASS/WARN from FAIL
+# Separate valid data (PASS/WARN) from invalid data (FAIL)
 def split_by_status(df, label: str):
     proceed    = df.filter(F.col("_row_status") != "FAIL")
     quarantine = (
@@ -139,30 +89,25 @@ def split_by_status(df, label: str):
           .withColumn("_quarantine_reason", F.lit("SCHEMA_RULE_VIOLATION"))
           .withColumn("_quarantine_source", F.lit(label))
     )
-    print(f"\n[SPLIT] [{label}]")
-    print(f"  Proceeding  : {proceed.count():,}")
-    print(f"  Quarantined : {quarantine.count()}")
     return proceed, quarantine
 
 legacy_proceed,  legacy_q   = split_by_status(legacy_status,  "legacy_system")
 new_sys_proceed, new_sys_q  = split_by_status(new_sys_status, "new_system")
 
-# 7. Write quarantine and validated data to S3
+# Write quarantine files to S3 if any failures occurred
 all_q = legacy_q.unionByName(new_sys_q, allowMissingColumns=True)
 q_count = all_q.count()
-
 if q_count > 0:
     all_q.write.mode("append").format("json").save(QUARANTINE_PATH)
-    print(f"\n[QUARANTINE] {q_count} rows written to: {QUARANTINE_PATH}")
 
+# Save validated files to staging
 for df, path, label in [
     (legacy_proceed,  VALIDATED_LEGACY, "legacy_system"),
     (new_sys_proceed, VALIDATED_NEW,    "new_system"),
 ]:
     df.write.mode("overwrite").partitionBy("txn_date").format("parquet").save(path)
-    print(f"[WRITE] [{label}] {df.count():,} rows --> {path}")
 
-# 8. Audit log
+# Log execution audit record
 (
     spark.createDataFrame([{
         "notebook"            : "03_deduplicate_validate_schema",
@@ -179,7 +124,4 @@ for df, path, label in [
     }])
     .write.mode("append").format("json").save(LOG_PATH)
 )
-
-print("\n" + "=" * 60)
-print("  NOTEBOOK 03 — COMPLETE")
-print("=" * 60)
+print("Notebook 03 Complete.")
