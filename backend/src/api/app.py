@@ -4,6 +4,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from src.api.routers.snowflake import router as snowflake_router
 
+# Windows event loop policy fix
 if sys.platform == "win32":
     try:
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
@@ -16,6 +17,7 @@ app = FastAPI(
     version="1.0.0"
 )
 
+# Enable CORS for frontend API calls
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -24,6 +26,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Register endpoints under /api prefix
 app.include_router(snowflake_router, prefix="/api")
 
 @app.get("/health")

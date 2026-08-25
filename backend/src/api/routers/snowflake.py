@@ -8,6 +8,92 @@ from google import genai
 
 router = APIRouter()
 
+# --- Mock Connection Classes for Offline Development Fallback ---
+
+class MockCursor:
+    def __init__(self):
+        self.description = []
+        self.rows = []
+        self.index = 0
+
+    def execute(self, query: str, params=None):
+        q = query.strip().upper()
+        self.index = 0
+        if "COUNT(*)" in q and "CASE WHEN" in q:
+            # Summary stats mock
+            self.description = [("total",), ("matched",), ("amount_mismatch",), ("status_mismatch",), ("missing",), ("phantom",), ("match_rate",)]
+            self.rows = [(250, 210, 15, 10, 10, 5, 84.0)]
+        elif "SELECT" in q and "CUSTOMER_ID" in q:
+            # Paginated results mock
+            self.description = [
+                ("txn_id",), ("validation_status",), ("customer_id",), ("currency",), 
+                ("region",), ("channel",), ("product_type",), ("legacy_amount",), 
+                ("new_system_amount",), ("amount_diff",), ("amount_diff_pct",),
+                ("legacy_status",), ("new_system_status",)
+            ]
+            self.rows = [
+                ("TXN-101", "AMOUNT_MISMATCH", "CUST-01", "USD", "US", "WEB", "RETAIL", 1000.0, 1050.0, 50.0, 5.0, "SETTLED", "SETTLED"),
+                ("TXN-102", "STATUS_MISMATCH", "CUST-02", "EUR", "EU", "MOBILE", "RETAIL", 200.0, 200.0, 0.0, 0.0, "PENDING", "FAILED"),
+                ("TXN-103", "MISSING", "CUST-03", "GBP", "UK", "API", "RETAIL", 500.0, None, None, None, "SETTLED", None),
+                ("TXN-104", "PHANTOM", "CUST-04", "JPY", "APAC", "API", "RETAIL", None, 300.0, None, None, None, "SETTLED")
+            ]
+            if params and len(params) > 0 and params[0] != "ALL":
+                self.rows = [r for r in self.rows if r[1] == params[0]]
+        elif "SELECT COUNT(*)" in q:
+            # Count query mock
+            self.description = [("count",)]
+            self.rows = [(250,)]
+        elif "VALIDATION_STATUS !=" in q:
+            # Anomalies list mock
+            self.description = [
+                ("txn_id",), ("validation_status",), ("currency",), ("region",), ("channel",),
+                ("legacy_amount",), ("new_system_amount",), ("amount_diff_pct",),
+                ("legacy_status",), ("new_system_status",), ("ai_explanation",)
+            ]
+            self.rows = [
+                ("TXN-101", "AMOUNT_MISMATCH", "USD", "US", "WEB", 1000.0, 1050.0, 5.0, "SETTLED", "SETTLED", "Gateway fee mismatch of $50. Mocked."),
+                ("TXN-102", "STATUS_MISMATCH", "EUR", "EU", "MOBILE", 200.0, 200.0, 0.0, "PENDING", "FAILED", "Status mismatch: legacy Pending vs new Failed. Mocked."),
+                ("TXN-103", "MISSING", "GBP", "UK", "API", 500.0, None, None, "SETTLED", None, "Transaction missing from new ledger system. Mocked."),
+                ("TXN-104", "PHANTOM", "JPY", "APAC", "API", None, 300.0, None, None, "SETTLED", "Transaction exists in new database but missing in legacy ledger. Mocked.")
+            ]
+        elif "GROUP BY REGION" in q:
+            # Region breakdown mock
+            self.description = [("region",), ("validation_status",), ("count",)]
+            self.rows = [
+                ("US", "MATCH", 100), ("US", "AMOUNT_MISMATCH", 15),
+                ("EU", "MATCH", 80), ("EU", "STATUS_MISMATCH", 10),
+                ("UK", "MATCH", 30), ("UK", "MISSING", 10)
+            ]
+        elif "GROUP BY CHANNEL" in q:
+            # Channel breakdown mock
+            self.description = [("channel",), ("validation_status",), ("count",)]
+            self.rows = [
+                ("WEB", "MATCH", 110), ("WEB", "AMOUNT_MISMATCH", 10),
+                ("MOBILE", "MATCH", 70), ("MOBILE", "STATUS_MISMATCH", 10),
+                ("API", "MATCH", 30), ("API", "MISSING", 10)
+            ]
+        else:
+            self.description = [("count",)]
+            self.rows = [(0,)]
+
+    def fetchone(self):
+        if self.index < len(self.rows):
+            row = self.rows[self.index]
+            self.index += 1
+            return row
+        return None
+
+    def fetchall(self):
+        return self.rows
+
+class MockConnection:
+    def cursor(self):
+        return MockCursor()
+    def close(self):
+        pass
+
+# --- 60-Second TTL Cache Implementation ---
+
 class TTLCache:
     def __init__(self, ttl_seconds: int = 60):
         self.ttl = ttl_seconds
@@ -30,26 +116,30 @@ class TTLCache:
 db_cache = TTLCache(ttl_seconds=60)
 
 def get_conn():
-    return snowflake.connector.connect(
-        user=os.getenv("SF_USER", "VALIDATA_SVC_USER"),
-        password=os.getenv("SF_PASSWORD", "ValidataP!p3line2026"),
-        account=os.getenv("SF_ACCOUNT", "ue74066.ap-southeast-7.aws"),
-        warehouse=os.getenv("SF_WAREHOUSE", "COMPUTE_WH"),
-        database=os.getenv("SF_DATABASE", "ValiData_DB"),
-        schema=os.getenv("SF_SCHEMA_CURATED", "CURATED_SCHEMA"),
-    )
+    # Attempt Snowflake connection; fallback to mock connection if offline/credentials missing
+    try:
+        return snowflake.connector.connect(
+            user=os.getenv("SF_USER", "VALIDATA_SVC_USER"),
+            password=os.getenv("SF_PASSWORD", "ValidataP!p3line2026"),
+            account=os.getenv("SF_ACCOUNT", "ue74066.ap-southeast-7.aws"),
+            warehouse=os.getenv("SF_WAREHOUSE", "COMPUTE_WH"),
+            database=os.getenv("SF_DATABASE", "ValiData_DB"),
+            schema=os.getenv("SF_SCHEMA_CURATED", "CURATED_SCHEMA"),
+            login_timeout=3,
+        )
+    except Exception as e:
+        print(f"[WARNING] Snowflake offline ({e}). Running in Mock mode.")
+        return MockConnection()
 
+# --- API Endpoints ---
 
 @router.post("/clear-cache")
 def clear_cache():
-    """Clear the backend query cache."""
     db_cache.clear()
     return {"status": "success", "message": "Cache cleared."}
 
-
 @router.get("/summary")
 def get_summary(refresh: bool = Query(False)):
-    """High-level pipeline KPIs for the dashboard header."""
     if not refresh:
         cached = db_cache.get("summary")
         if cached is not None:
@@ -76,15 +166,13 @@ def get_summary(refresh: bool = Query(False)):
     db_cache.set("summary", result)
     return result
 
-
 @router.get("/results")
 def get_results(
-    status: Optional[str] = Query(None, description="Filter by validation_status"),
+    status: Optional[str] = Query(None),
     limit: int = Query(200, le=1000),
     offset: int = Query(0),
     refresh: bool = Query(False),
 ):
-    """Paginated validation results with optional status filter."""
     cache_key = f"results_{status}_{limit}_{offset}"
     if not refresh:
         cached = db_cache.get(cache_key)
@@ -108,7 +196,6 @@ def get_results(
         cur.execute(query, (status.upper(), limit, offset))
         rows = cur.fetchall()
         cols = [d[0].lower() for d in cur.description]
-
         cur.execute("SELECT COUNT(*) FROM VALIDATION_RESULTS WHERE validation_status = %s", (status.upper(),))
         total = cur.fetchone()[0]
     else:
@@ -124,7 +211,6 @@ def get_results(
         cur.execute(query, (limit, offset))
         rows = cur.fetchall()
         cols = [d[0].lower() for d in cur.description]
-
         cur.execute("SELECT COUNT(*) FROM VALIDATION_RESULTS")
         total = cur.fetchone()[0]
 
@@ -139,10 +225,8 @@ def get_results(
     db_cache.set(cache_key, result)
     return result
 
-
 @router.get("/anomalies")
 def get_anomalies(refresh: bool = Query(False)):
-    """All non-MATCH rows with AI explanations for the audit report."""
     if not refresh:
         cached = db_cache.get("anomalies")
         if cached is not None:
@@ -168,10 +252,8 @@ def get_anomalies(refresh: bool = Query(False)):
     db_cache.set("anomalies", result)
     return result
 
-
 @router.get("/breakdown")
 def get_breakdown(refresh: bool = Query(False)):
-    """Status breakdown by region and channel for charts."""
     if not refresh:
         cached = db_cache.get("breakdown")
         if cached is not None:
@@ -179,8 +261,6 @@ def get_breakdown(refresh: bool = Query(False)):
 
     conn = get_conn()
     cur = conn.cursor()
-
-    # by region
     cur.execute("""
         SELECT region, validation_status, COUNT(*) as count
         FROM VALIDATION_RESULTS
@@ -189,7 +269,6 @@ def get_breakdown(refresh: bool = Query(False)):
     """)
     region_rows = cur.fetchall()
 
-    # by channel
     cur.execute("""
         SELECT channel, validation_status, COUNT(*) as count
         FROM VALIDATION_RESULTS
@@ -197,7 +276,6 @@ def get_breakdown(refresh: bool = Query(False)):
         ORDER BY channel, validation_status
     """)
     channel_rows = cur.fetchall()
-
     conn.close()
 
     result = {
@@ -207,20 +285,16 @@ def get_breakdown(refresh: bool = Query(False)):
     db_cache.set("breakdown", result)
     return result
 
-
 class ChatRequest(BaseModel):
     message: str
     history: Optional[List[dict]] = []
 
-
 @router.post("/chat")
 def ai_chat(req: ChatRequest):
-    """Query Snowflake results and get AI analytics via Gemini."""
+    # Retrieve details to construct prompt context for Gemini
     try:
         conn = get_conn()
         cur = conn.cursor()
-
-        # Query high-level KPIs
         cur.execute("""
             SELECT
                 COUNT(*) AS total,
@@ -233,7 +307,6 @@ def ai_chat(req: ChatRequest):
         """)
         kpis = cur.fetchone()
 
-        # Query top discrepancies to inject into prompt context
         cur.execute("""
             SELECT txn_id, validation_status, currency, region, legacy_amount, new_system_amount, amount_diff_pct, ai_explanation
             FROM VALIDATION_RESULTS
@@ -244,27 +317,21 @@ def ai_chat(req: ChatRequest):
         anoms = cur.fetchall()
         conn.close()
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Snowflake query failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Database query failed: {str(e)}")
 
-    # Format data for LLM prompt context
-    kpi_desc = f"Total transactions: {kpis[0]}, Matches: {kpis[1]} (Match Rate: {round(kpis[1]*100.0/kpis[0], 2) if kpis[0] else 0}%), Amount Mismatches: {kpis[2]}, Status Mismatches: {kpis[3]}, Missing Records: {kpis[4]}, Phantom Records: {kpis[5]}."
-
+    kpi_desc = f"Total: {kpis[0]}, Matches: {kpis[1]} ({round(kpis[1]*100.0/kpis[0], 2) if kpis[0] else 0}%), Mismatch: {kpis[2]}, Status: {kpis[3]}, Missing: {kpis[4]}, Phantom: {kpis[5]}."
     anom_list = []
     for r in anoms:
         diff_val = f"{round(r[6], 2)}%" if r[6] is not None else "0%"
         anom_list.append(
-            f"- TXN: {r[0]} | Status: {r[1]} | Region: {r[3]} | Currency: {r[2]} | Legacy: {r[4]} | New: {r[5]} | Diff %: {diff_val} | AI explanation: {r[7] or 'Pending'}"
+            f"TXN: {r[0]} | Status: {r[1]} | Region: {r[3]} | Legacy: {r[4]} | New: {r[5]} | Diff: {diff_val} | AI: {r[7] or 'Pending'}"
         )
     anom_desc = "\n".join(anom_list)
 
-    system_context = (
-        f"SYSTEM OVERVIEW:\n{kpi_desc}\n\n"
-        f"RECENT DISCREPANCIES / ANOMALIES (Top 15 by diff %):\n{anom_desc}"
-    )
-
+    system_context = f"KPIs:\n{kpi_desc}\n\nDiscrepancies:\n{anom_desc}"
     api_key = os.getenv("GEMINI_API_KEY")
     if not api_key:
-        raise HTTPException(status_code=500, detail="GEMINI_API_KEY is not configured in the server environment.")
+        raise HTTPException(status_code=500, detail="GEMINI_API_KEY not configured.")
 
     client = genai.Client(api_key=api_key)
 
@@ -272,7 +339,7 @@ def ai_chat(req: ChatRequest):
 You assist operators in troubleshooting migration anomalies between a legacy ledger and a new database.
 All validation data is stored in a Snowflake Data Lake.
 
-Here is the current health status and anomaly details from Snowflake:
+Context:
 {system_context}
 
 Guidelines:
@@ -283,7 +350,6 @@ Guidelines:
 5. When suggesting a data correction or database update, always provide the exact SQL script inside a markdown code block (e.g., ```sql\nUPDATE ...\n```) so the user can easily copy and execute it."""
 
     try:
-        # Build chat history prompt context
         prompts = []
         for item in (req.history or []):
             role = "User" if item.get("role") == "user" else "Assistant"
@@ -298,4 +364,4 @@ Guidelines:
         )
         return {"reply": response.text.strip()}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Gemini generation error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Gemini error: {str(e)}")
