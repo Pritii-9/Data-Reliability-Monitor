@@ -18,55 +18,9 @@ Validata is built from the ground up to handle enterprise data volumes efficient
 
 ---
 
-## 🏗️ System Architecture & Data Flow
+## 🏗️ System Architecture
+![Validata Architecture](docs/images/architecture.png)
 
-```text
-  [ Legacy Ledger ]              [ New System Ledger ]
-         │                                 │
-         ▼ (CSV)                           ▼ (CSV)
-  ┌──────────────────────────────────────────────────┐
-  │              AWS S3 Data Lake (Raw)              │
-  └────────────────────────┬─────────────────────────┘
-                           │
-                           ▼
-  ┌──────────────────────────────────────────────────┐
-  │                 AWS Glue (ETL)                   │
-  │  - 01_extract_raw_data (Bronze Parquet)          │
-  │  - 02_transform_clean_standardize (Silver)       │
-  │  - 03_deduplicate_validate_schema (Validated)    │
-  │  - 04_validation_engine (Gold Reconciliation)    │
-  └────────────────────────┬─────────────────────────┘
-                           │
-                           ▼ (Curated Parquet)
-  ┌──────────────────────────────────────────────────┐
-  │            AWS S3 Data Lake (Curated)            │
-  └────────────────────────┬─────────────────────────┘
-                           │
-                           ▼ (05_load_to_snowflake)
-  ┌──────────────────────────────────────────────────┐
-  │              Snowflake Data Lake                 │
-  │  - (ValiData_DB.CURATED_SCHEMA.RESULTS)          │
-  │  - 06_ai_anomaly_explanation (Gemini 3.5 Flash-lite)│
-  └────────────────────────┬─────────────────────────┘
-                           │
-                           ▼ SQL Queries
-  ┌──────────────────────────────────────────────────┐
-  │             FastAPI Backend Engine               │
-  │  - Fetches reconciliation metrics & anomalies    │
-  │  - Resolves Snowflake connections & responses    │
-  └────────────────────────┬─────────────────────────┘
-                           │
-                 REST APIs │ WebSocket
-                           ▼
-  ┌──────────────────────────────────────────────────┐
-  │          Vite + React Dashboard Client           │
-  │  - Slate Gray monochromatic high-contrast UI     │
-  │  - Live status indicators & KPI trends           │
-  │  - AI Anomaly Audit findings                     │
-  └──────────────────────────────────────────────────┘
-```
-
----
 
 ## 📓 AWS Glue & Integration Notebooks (Data Pipeline)
 
@@ -140,7 +94,7 @@ Validata — Data Validation Engine/
 │   ├── venv/                  # Local python virtual environment
 │   ├── main.py                # FastAPI server entrypoint (proxied to src/api/app.py)
 │   └── requirements.txt       # Frozen direct dependencies
-├── frontend/                  # ⚛️ React / Vite / Tailwind UI
+├── frontend/                  # ⚛️ React / Vite (Vanilla CSS)
 │   ├── src/                   # Components, pages, and API services
 │   ├── package.json           # Node dependencies
 │   └── vite.config.ts         # Vite server & proxy configurations
