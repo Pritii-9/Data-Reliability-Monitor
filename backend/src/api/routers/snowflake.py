@@ -29,13 +29,13 @@ class MockCursor:
                 ("txn_id",), ("validation_status",), ("customer_id",), ("currency",), 
                 ("region",), ("channel",), ("product_type",), ("legacy_amount",), 
                 ("new_system_amount",), ("amount_diff",), ("amount_diff_pct",),
-                ("legacy_status",), ("new_system_status",)
+                ("legacy_status",), ("new_system_status",), ("txn_date",)
             ]
             self.rows = [
-                ("TXN-101", "AMOUNT_MISMATCH", "CUST-01", "USD", "US", "WEB", "RETAIL", 1000.0, 1050.0, 50.0, 5.0, "SETTLED", "SETTLED"),
-                ("TXN-102", "STATUS_MISMATCH", "CUST-02", "EUR", "EU", "MOBILE", "RETAIL", 200.0, 200.0, 0.0, 0.0, "PENDING", "FAILED"),
-                ("TXN-103", "MISSING", "CUST-03", "GBP", "UK", "API", "RETAIL", 500.0, None, None, None, "SETTLED", None),
-                ("TXN-104", "PHANTOM", "CUST-04", "JPY", "APAC", "API", "RETAIL", None, 300.0, None, None, None, "SETTLED")
+                ("TXN-101", "AMOUNT_MISMATCH", "CUST-01", "USD", "US", "WEB", "RETAIL", 1000.0, 1050.0, 50.0, 5.0, "SETTLED", "SETTLED", "2026-08-20"),
+                ("TXN-102", "STATUS_MISMATCH", "CUST-02", "EUR", "EU", "MOBILE", "RETAIL", 200.0, 200.0, 0.0, 0.0, "PENDING", "FAILED", "2026-08-21"),
+                ("TXN-103", "MISSING", "CUST-03", "GBP", "UK", "API", "RETAIL", 500.0, None, None, None, "SETTLED", None, "2026-08-22"),
+                ("TXN-104", "PHANTOM", "CUST-04", "JPY", "APAC", "API", "RETAIL", None, 300.0, None, None, None, "SETTLED", "2026-08-23")
             ]
             if params and len(params) > 0 and params[0] != "ALL":
                 self.rows = [r for r in self.rows if r[1] == params[0]]
@@ -207,7 +207,7 @@ def get_results(
         SELECT
             txn_id, validation_status, customer_id, currency, region, channel, product_type,
             legacy_amount, new_system_amount, amount_diff, amount_diff_pct,
-            legacy_status, new_system_status
+            legacy_status, new_system_status, txn_date
         FROM VALIDATION_RESULTS
         {where_sql}
         ORDER BY validation_status, txn_id

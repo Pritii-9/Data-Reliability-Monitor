@@ -1,0 +1,41 @@
+name: Terraform CI
+
+on:
+  push:
+    branches: [ "main" ]
+    paths:
+      - 'infra/terraform/**'
+  pull_request:
+    branches: [ "main" ]
+    paths:
+      - 'infra/terraform/**'
+
+jobs:
+  validate:
+    name: Validate Infrastructure
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: infra/terraform
+
+    steps:
+    - name: Checkout Repository
+      uses: actions/checkout@v4
+
+    - name: Setup Terraform
+      uses: hashicorp/setup-terraform@v3
+      with:
+        terraform_version: "1.9.0"
+
+    - name: Terraform Format Check
+      id: fmt
+      run: terraform fmt -check -recursive
+      
+    - name: Terraform Init
+      id: init
+      # -backend=false skips backend initialization since we just want to validate the code
+      run: terraform init -backend=false
+
+    - name: Terraform Validate
+      id: validate
+      run: terraform validate

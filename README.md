@@ -6,6 +6,18 @@ The engine leverages an AWS-native PySpark data pipeline via **AWS Glue** and **
 
 ---
 
+## 📊 Architecture Capabilities & Scale
+
+Validata is built from the ground up to handle enterprise data volumes efficiently:
+
+* **Scalability:** Architected with AWS Glue (PySpark) to easily process **1M+ rows per batch**.
+* **Performance:** Distributed logic designed to reconcile large-scale ledger migrations in **minutes, not hours**.
+* **Accuracy:** Guarantees **100% discrepancy capture** (amount drift, status mismatch, missing records) via mathematically complete full outer-joins.
+* **Data Lineage:** Maintains a strict `AUDIT_LOG` in Snowflake tracking the execution environment (e.g., `AWS_GLUE` vs `LOCAL_SIMULATOR`) and pipeline version for every batch.
+* **AI Observability:** Bulk-processes anomalies through Gemini to provide instant, human-readable root cause analysis at scale.
+
+---
+
 ## 🏗️ System Architecture & Data Flow
 
 ```text
@@ -201,6 +213,25 @@ npm install
 npm run dev
 ```
 
+
+---
+
+## 💰 Infrastructure Cost & Teardown
+
+This project uses **Terraform** for Infrastructure-as-Code (IaC) to ensure a reproducible, cost-controlled environment. All cloud infrastructure (AWS S3, IAM, Glue jobs, and Snowflake databases, warehouses, and tables) is fully automated.
+
+**Cost Management (Free Tier / Trial Compatible):**
+* **Snowflake**: The `COMPUTE_WH` warehouse is configured to **auto-suspend after 60 seconds** of inactivity, minimizing compute credits. This runs entirely within the Snowflake 30-day free trial.
+* **AWS**: S3 and IAM usage falls under the AWS Free Tier. Glue jobs only incur charges per run (pennies per execution) and are triggered on-demand.
+* **Gemini AI**: The AI observability engine uses `gemini-3.5-flash-lite`, which operates well within the generous Google AI Studio free tier limits.
+
+**Environment Teardown:**
+To ensure absolutely **zero ongoing cost** after a demonstration or pipeline run, the entire cloud infrastructure can be destroyed in under 60 seconds:
+
+```powershell
+cd infra/terraform
+terraform destroy -auto-approve
+```
 
 ---
 

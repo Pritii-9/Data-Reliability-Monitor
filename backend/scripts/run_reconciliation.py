@@ -51,16 +51,33 @@ if args.local_only:
     print("  [MODE: LOCAL MOCK / OFFLINE]")
 print("=" * 60)
 
-# 1. Read files
-if not os.path.exists(LEGACY_CSV_PATH) or not os.path.exists(NEW_SYS_CSV_PATH):
-    print(f"Error: Could not locate test CSV files at legacy path '{LEGACY_CSV_PATH}' or new system path '{NEW_SYS_CSV_PATH}'.")
-    sys.exit(1)
+# 1. Read files (supports both files and directories)
+def load_path(path, label):
+    if os.path.isdir(path):
+        csv_files = [os.path.join(path, f) for f in os.listdir(path) if f.lower().endswith('.csv')]
+        if not csv_files:
+            print(f"Error: No CSV files found in {label} directory '{path}'.")
+            sys.exit(1)
+        print(f"Loading {len(csv_files)} CSV files from {label} directory '{path}'...")
+        dfs = []
+        for f in csv_files:
+            try:
+                dfs.append(pd.read_csv(f))
+            except Exception as e:
+                print(f"  Warning: Failed to load file {f}: {e}")
+        if not dfs:
+            print(f"Error: Failed to load any valid CSV files from {label} directory '{path}'.")
+            sys.exit(1)
+        return pd.concat(dfs, ignore_index=True)
+    else:
+        if not os.path.exists(path):
+            print(f"Error: Could not locate {label} file at path '{path}'.")
+            sys.exit(1)
+        print(f"Loading {label} file '{path}'...")
+        return pd.read_csv(path)
 
-print(f"Loading {LEGACY_CSV_PATH}...")
-legacy_df = pd.read_csv(LEGACY_CSV_PATH)
-
-print(f"Loading {NEW_SYS_CSV_PATH}...")
-new_df = pd.read_csv(NEW_SYS_CSV_PATH)
+legacy_df = load_path(LEGACY_CSV_PATH, "Legacy")
+new_df = load_path(NEW_SYS_CSV_PATH, "New System")
 
 # 2. Clean and Standardize (Trim spaces, uppercase enums, round amounts)
 def clean_df(df, label):
@@ -160,7 +177,8 @@ final_df = reconciled[[
     'legacy_status', 'new_system_status', 'validation_status'
 ]].copy()
 
-final_df['validated_at'] = datetime.now(timezone.utc)
+final_df['validated_at'] = datetime.now(timezone.utc).replace(tzinfo=None)
+final_df['loaded_at'] = datetime.now(timezone.utc).replace(tzinfo=None)
 final_df['ai_explanation'] = None
 final_df['ai_explained_at'] = None
 
@@ -241,9 +259,37 @@ try:
         df=final_df,
         table_name="VALIDATION_RESULTS",
         auto_create_table=False,
-        quote_identifiers=False
+        quote_identifiers=False,
+        use_logical_type=True
     )
     print(f"Successfully uploaded {nrows} rows to Snowflake table: VALIDATION_RESULTS")
+    
+    # Write to AUDIT_LOG
+    print("Writing pipeline execution metrics to AUDIT_LOG...")
+    import uuid
+    run_id = str(uuid.uuid4())
+    total_rows = len(final_df)
+    match_count = len(final_df[final_df['VALIDATION_STATUS'] == 'MATCH'])
+    mismatch_count = total_rows - match_count
+    
+    # Escape file paths for SQL
+    legacy_path = args.legacy.replace("'", "''").replace("\\", "/")
+    new_path = args.new.replace("'", "''").replace("\\", "/")
+    
+    audit_sql = f"""
+    INSERT INTO AUDIT_LOG (
+        RUN_ID, RUN_TIMESTAMP, LEGACY_FILE, NEW_FILE, 
+        TOTAL_ROWS, MATCH_COUNT, MISMATCH_COUNT, STATUS, 
+        EXECUTION_ENVIRONMENT, PIPELINE_VERSION
+    ) VALUES (
+        '{run_id}', CURRENT_TIMESTAMP(), '{legacy_path}', '{new_path}',
+        {total_rows}, {match_count}, {mismatch_count}, 'SUCCESS',
+        'LOCAL_SIMULATOR', 'local-dev-v1.0'
+    )
+    """
+    cursor.execute(audit_sql)
+    print(f"Successfully recorded Data Lineage audit log: {run_id}")
+
 except Exception as e:
     print(f"Snowflake Connection/Upload Error: {e}")
     sys.exit(1)

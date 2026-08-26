@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef, useCallback } from 'react'
 import apiClient from '../services/api'
-import { Search, Download, RefreshCw, ChevronUp, ChevronDown, ChevronRight, Database } from 'lucide-react'
+import { Search, Download, RefreshCw, ChevronUp, ChevronDown, ChevronRight, Database, Calendar } from 'lucide-react'
 import { toast } from '../components/Toast'
 
 const STATUSES = ['ALL', 'MATCH', 'AMOUNT_MISMATCH', 'STATUS_MISMATCH', 'MISSING', 'PHANTOM']
@@ -25,6 +25,7 @@ interface Row {
   amount_diff_pct: number | null
   legacy_status: string | null
   new_system_status: string | null
+  txn_date: string
 }
 
 type SortKey = keyof Row
@@ -86,6 +87,7 @@ function DetailRow({ row }: { row: Row }) {
 
 export default function Results() {
   const [status, setStatus] = useState('ALL')
+  const [selectedMonth, setSelectedMonth] = useState('ALL')
   const [search, setSearch] = useState('')
   const [data, setData] = useState<Row[]>([])
   const [total, setTotal] = useState(0)
@@ -95,7 +97,20 @@ export default function Results() {
   const [sortKey, setSortKey] = useState<SortKey | null>(null)
   const [sortDir, setSortDir] = useState<SortDir>('asc')
   const [expandedRow, setExpandedRow] = useState<string | null>(null)
+  const [dropdownOpen, setDropdownOpen] = useState(false)
   const searchRef = useRef<HTMLInputElement>(null)
+  const dropdownRef = useRef<HTMLDivElement>(null)
+
+  // Click outside to close custom dropdown
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setDropdownOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
 
   const fetchData = useCallback((silent = false, force = false) => {
     if (!silent) setLoading(true)
@@ -117,7 +132,7 @@ export default function Results() {
   }, [status])
 
   useEffect(() => { fetchData() }, [fetchData])
-  useEffect(() => { setPage(0) }, [search, pageSize, sortKey, sortDir])
+  useEffect(() => { setPage(0) }, [search, selectedMonth, pageSize, sortKey, sortDir])
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -139,10 +154,25 @@ export default function Results() {
     else { setSortKey(key); setSortDir('asc') }
   }
 
-  const filtered = data.filter(r =>
-    !search || r.txn_id.toLowerCase().includes(search.toLowerCase()) ||
-    (r.customer_id || '').toLowerCase().includes(search.toLowerCase())
-  )
+  const filtered = data.filter(r => {
+    const matchesSearch = !search || r.txn_id.toLowerCase().includes(search.toLowerCase()) ||
+      (r.customer_id || '').toLowerCase().includes(search.toLowerCase())
+    const matchesMonth = selectedMonth === 'ALL' || (r.txn_date && r.txn_date.startsWith(selectedMonth))
+    return matchesSearch && matchesMonth
+  })
+
+  // Get unique months present in data
+  const months = Array.from(new Set(data.map(r => r.txn_date ? r.txn_date.substring(0, 7) : ''))).filter(Boolean).sort()
+
+  // Group months by year
+  const groupedMonths = months.reduce((acc, m) => {
+    const [year, month] = m.split('-')
+    const date = new Date(parseInt(year), parseInt(month) - 1, 1)
+    const monthName = date.toLocaleDateString('en-US', { month: 'long' })
+    if (!acc[year]) acc[year] = []
+    acc[year].push({ value: m, label: monthName })
+    return acc
+  }, {} as Record<string, { value: string; label: string }[]>)
 
   const sorted = sortKey
     ? [...filtered].sort((a, b) => {
@@ -157,9 +187,9 @@ export default function Results() {
   const paginated = sorted.slice(page * pageSize, page * pageSize + pageSize)
 
   const exportCSV = () => {
-    const headers = ['TXN ID', 'Status', 'Customer', 'Currency', 'Region', 'Channel', 'Legacy Amt', 'New Amt', 'Diff %', 'Legacy Status', 'New Status']
+    const headers = ['TXN ID', 'Status', 'Date', 'Customer', 'Currency', 'Region', 'Channel', 'Legacy Amt', 'New Amt', 'Diff %', 'Legacy Status', 'New Status']
     const rows = sorted.map(r => [
-      r.txn_id, r.validation_status, r.customer_id || '', r.currency, r.region, r.channel,
+      r.txn_id, r.validation_status, r.txn_date || '', r.customer_id || '', r.currency, r.region, r.channel,
       r.legacy_amount ?? '', r.new_system_amount ?? '',
       r.amount_diff_pct !== null ? Number(r.amount_diff_pct).toFixed(2) : '',
       r.legacy_status || '', r.new_system_status || ''
@@ -192,6 +222,7 @@ export default function Results() {
   const COLUMNS: { label: string; key: SortKey; sortable?: boolean }[] = [
     { label: 'TXN ID', key: 'txn_id', sortable: true },
     { label: 'Status', key: 'validation_status', sortable: true },
+    { label: 'Date', key: 'txn_date', sortable: true },
     { label: 'Customer', key: 'customer_id', sortable: true },
     { label: 'Currency', key: 'currency', sortable: true },
     { label: 'Region', key: 'region', sortable: true },
@@ -259,6 +290,69 @@ export default function Results() {
               onChange={e => setSearch(e.target.value)}
               className="pl-8 pr-4 py-2 text-xs border border-slate-200 rounded-md bg-white text-slate-700 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent w-64 transition-all"
             />
+          </div>
+
+          {/* Custom Month Filter Dropdown */}
+          <div className="relative" ref={dropdownRef}>
+            <button
+              id="month-filter-toggle"
+              onClick={() => setDropdownOpen(!dropdownOpen)}
+              className="flex items-center gap-2 px-3 py-2 text-xs font-semibold border border-slate-200 rounded-md bg-white text-slate-600 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all cursor-pointer shadow-sm min-w-[140px]"
+            >
+              <Calendar size={13} className="text-slate-400 shrink-0" />
+              <span className="flex-1 text-left">
+                {selectedMonth === 'ALL'
+                  ? 'All Months'
+                  : (() => {
+                      const [year, month] = selectedMonth.split('-')
+                      const date = new Date(parseInt(year), parseInt(month) - 1, 1)
+                      return date.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
+                    })()}
+              </span>
+              <ChevronDown size={12} className={`text-slate-400 transition-transform ${dropdownOpen ? 'rotate-180' : ''}`} />
+            </button>
+
+            {dropdownOpen && (
+              <div className="absolute left-0 mt-1.5 w-56 bg-white border border-slate-200 rounded-lg shadow-lg py-1.5 z-50 animate-in fade-in duration-100 slide-in-from-top-1 max-h-72 overflow-y-auto">
+                <button
+                  onClick={() => {
+                    setSelectedMonth('ALL')
+                    setDropdownOpen(false)
+                  }}
+                  className={`w-full text-left px-4 py-2 text-xs font-semibold transition-colors ${
+                    selectedMonth === 'ALL'
+                      ? 'bg-blue-50 text-blue-600'
+                      : 'text-slate-600 hover:bg-slate-50'
+                  }`}
+                >
+                  All Months
+                </button>
+
+                {Object.entries(groupedMonths).map(([year, monthsList]) => (
+                  <div key={year} className="border-t border-slate-100 mt-1.5 pt-1.5">
+                    <div className="px-4 py-1 text-[9px] font-bold text-slate-400 uppercase tracking-wider bg-slate-50/50">
+                      {year}
+                    </div>
+                    {monthsList.map(({ value, label }) => (
+                      <button
+                        key={value}
+                        onClick={() => {
+                          setSelectedMonth(value)
+                          setDropdownOpen(false)
+                        }}
+                        className={`w-full text-left px-6 py-1.5 text-xs font-medium transition-colors ${
+                          selectedMonth === value
+                            ? 'bg-blue-50 text-blue-600 font-semibold'
+                            : 'text-slate-600 hover:bg-slate-50'
+                        }`}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
           <div className="flex gap-1 flex-wrap">
             {STATUSES.map(s => (
@@ -343,6 +437,7 @@ export default function Results() {
                         {row.validation_status.replace(/_/g, ' ')}
                       </span>
                     </td>
+                    <td className="px-4 py-3 text-slate-500 font-medium">{row.txn_date || '—'}</td>
                     <td className="px-4 py-3 text-slate-500">{row.customer_id || '—'}</td>
                     <td className="px-4 py-3 font-semibold text-slate-700">{row.currency}</td>
                     <td className="px-4 py-3 font-medium">{row.region}</td>
