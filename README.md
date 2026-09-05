@@ -2,7 +2,7 @@
 
 Validata is an enterprise-grade Data Reliability and Ledger Reconciliation platform. It continuously validates and audit-checks transaction ledger migrations between legacy databases and new core ledgers.
 
-The engine leverages an AWS-native PySpark data pipeline via **AWS Glue** and **AWS S3**, loads curated discrepancies (e.g., amount drift, state mismatch, missing records) into **Snowflake**, automatically generates AI-driven root cause explanations using **Google Gemini**, and visualizes them on an interactive dashboard.
+The engine leverages an AWS-native PySpark pipeline via **AWS Glue** and **AWS S3**, loads curated discrepancies (amount drift, state mismatch, missing records) into **Snowflake**, automatically generates AI-driven root cause explanations using **Google Gemini**, and visualizes them on an interactive React dashboard.
 
 ---
 
@@ -10,9 +10,9 @@ The engine leverages an AWS-native PySpark data pipeline via **AWS Glue** and **
 
 ```mermaid
 flowchart TD
-    A[Legacy CSV] --> C(AWS Glue ETL Concept)
-    B[New System CSV] --> C
-    C -->|Reconciliation| D[(Snowflake DB)]
+    A[Legacy CSV on S3] --> C(AWS Glue — consolidated_reconciliation_job.py)
+    B[New System CSV on S3] --> C
+    C -->|Full Outer Join + Classification| D[(Snowflake — CURATED_SCHEMA)]
     D --> E[FastAPI Engine]
     E --> F[React Dashboard]
     D -.->|Anomaly Explanations| G((Gemini AI))
@@ -20,23 +20,61 @@ flowchart TD
 
 ---
 
-## 📓 Conceptual Cloud Architecture (AWS & PySpark)
+## ☁️ Infrastructure as Code (Terraform)
 
-While the core reconciliation engine is designed to run locally or on a standard server, I also designed a **conceptual cloud architecture** to demonstrate how this pipeline would scale in a production enterprise environment. 
+The cloud infrastructure is fully managed via Terraform (`infra/terraform/`).
+Running `terraform apply` provisions the following resources automatically:
 
-The `backend/notebooks/` directory contains conceptual PySpark notebooks that mirror the local Python script's logic, translating it for **AWS Glue** serverless execution:
+| Resource | Details |
+|---|---|
+| `aws_s3_bucket` | `validata-datalake-dev` — versioned, AES-256 encrypted, no public access |
+| `snowflake_database` | `ValiData_DB` |
+| `snowflake_warehouse` | `COMPUTE_WH` — X-Small, auto-suspends after 60s idle |
+| `snowflake_schema` | `RAW_SCHEMA` + `CURATED_SCHEMA` |
+| `snowflake_user` | `VALIDATA_SVC_USER` — dedicated ETL service account |
+| Role Grants | DB + Warehouse USAGE granted to service account |
 
-* **`01_extract_raw_data.py`** & **`02_transform_clean_standardize.py`**: Concepts for reading from S3, applying schema enforcement, and standardizing data.
-* **`03_deduplicate_validate_schema.py`** & **`04_validation_engine.py`**: Concepts for distributed full-outer joins and data deduplication using PySpark.
-* **`05_load_to_snowflake.py`** & **`06_ai_anomaly_explanation.py`**: Concepts for bulk ingestion into Snowflake and orchestrating Gemini AI API calls at scale.
+```bash
+cd infra/terraform
+terraform init
+terraform plan    # preview changes
+terraform apply   # provision infrastructure
+```
 
-*(Note: For demonstration and interview purposes, the pipeline is executed via the Local Simulation Tool rather than spinning up live AWS Glue clusters).*
+> See `infra/terraform/terraform.tfvars.example` — fill in your credentials before running.
 
 ---
 
-## 📸 Application Dashboards & Observability
+## 🔄 ETL Pipeline — AWS Glue PySpark Job
 
-Here are key screenshots of the Validata Control Center:
+The single consolidated job at `backend/notebooks/consolidated_reconciliation_job.py` handles the entire pipeline in one Glue run:
+
+1. **Extract** — Reads raw transaction CSVs from `s3://validata-datalake/raw/legacy_system/` and `s3://validata-datalake/raw/new_system/`
+2. **Transform** — Renames columns and prepares both DataFrames for a collision-free join
+3. **Reconcile** — Full outer join on `txn_id`, computes `amount_diff` and `amount_diff_pct`
+4. **Classify** — Tags every record with a validation status:
+   - `MATCH` — amounts, currency, and status are identical
+   - `AMOUNT_MISMATCH` — amount drift > 0.1%
+   - `STATUS_MISMATCH` — posting status differs between systems
+   - `MISSING` — present in legacy, absent from new system
+   - `PHANTOM` — present in new system, absent from legacy
+5. **Load** — Writes final results directly to Snowflake `CURATED_SCHEMA.VALIDATION_RESULTS`
+
+---
+
+## 🎯 Discrepancy Classification Model
+
+| Status | Description |
+|---|---|
+| `MATCH` | Identical records — amount, currency, and posting status align |
+| `AMOUNT_MISMATCH` | Present in both ledgers but currency/amount fields drift |
+| `STATUS_MISMATCH` | Exists in both but transaction status differs (e.g. `PENDING` vs `SETTLED`) |
+| `MISSING` | In the legacy ledger but absent from the new system |
+| `PHANTOM` | In the new system but absent from the legacy ledger |
+
+---
+
+## 📸 Application Dashboards
 
 ### 1. Dashboard Overview
 ![Dashboard Overview](docs/images/dashboard.png?v=2)
@@ -52,116 +90,98 @@ Here are key screenshots of the Validata Control Center:
 
 ---
 
-## 🎯 Discrepancy Classification Model
-
-The reconciliation engine flags every ledger pair into one of five categories:
-* **`MATCH`**: Identical records, transactions match in amount, currency, and posting status.
-* **`AMOUNT_MISMATCH`**: Transaction is present in both ledgers, but currency/amount fields drift.
-* **`STATUS_MISMATCH`**: Transaction exists in both ledgers, but transaction statuses mismatch (e.g. `PENDING` vs `SETTLED`).
-* **`MISSING`**: Present in the legacy ledger but absent from the new system.
-* **`PHANTOM`**: Present in the new system but absent from the legacy ledger.
-
----
-
 ## 📂 Repository Structure
 
-The project is structured as a clean, consolidated monorepo:
-
-```bash
+```
 Validata — Data Validation Engine/
-├── backend/                   # 🐍 Python / FastAPI Service
-│   ├── database/              # SQL setups and Snowflake DDL schemas
-│   ├── notebooks/             # AWS Glue PySpark ETL / AI notebooks
-│   ├── runbooks/              # Compliance operations SOPs
-│   ├── scripts/               # Local reconciliation simulator script
-│   ├── src/                   # Core Python logic (api, engine)
-│   │   ├── api/               # Unified FastAPI endpoints & routers
-│   │   └── engine/            # AI Observability engine hooks
-│   ├── tests/                 # API unit & integration test suite
-│   ├── venv/                  # Local python virtual environment
-│   ├── main.py                # FastAPI server entrypoint (proxied to src/api/app.py)
-│   └── requirements.txt       # Frozen direct dependencies
-├── frontend/                  # ⚛️ React / Vite / Tailwind UI
-│   ├── src/                   # Components, pages, and API services
-│   ├── package.json           # Node dependencies
-│   └── vite.config.ts         # Vite server & proxy configurations
-├── .env                       # Combined environment secrets
+├── backend/
+│   ├── database/              # Snowflake DDL schemas & setup SQL
+│   ├── notebooks/
+│   │   └── consolidated_reconciliation_job.py  # AWS Glue PySpark ETL job
+│   ├── scripts/               # Local reconciliation simulator
+│   ├── src/
+│   │   ├── api/               # FastAPI endpoints & routers
+│   │   └── engine/            # AI observability hooks
+│   ├── tests/                 # pytest unit & integration tests
+│   ├── main.py                # FastAPI server entrypoint
+│   └── requirements.txt       # Python dependencies
+├── frontend/                  # React / Vite dashboard
+│   ├── src/                   # Components, pages, API services
+│   └── vite.config.ts         # Vite dev server & proxy config
+├── infra/
+│   └── terraform/             # IaC — S3, Snowflake DB/WH/Schemas/User
+├── .github/
+│   └── workflows/
+│       └── pytest.yml         # CI — runs backend test suite on every push
+├── sample_data/               # Test transaction CSV files
+├── .env.example               # Environment variable template
 ├── docker-compose.yml         # Container definitions
-└── README.md                  # System documentation
+└── README.md
 ```
 
 ---
 
-## 🚀 Installation, Run Flows & Local Development
+## 🚀 Local Development Setup
 
-### 1. Configure Environments
-Copy the environment template file at the root:
+### 1. Configure Environment
 ```bash
 cp .env.example .env
+# Fill in: SNOWFLAKE_* credentials and GEMINI_API_KEY
 ```
-Provide your **Snowflake Credentials** and **`GEMINI_API_KEY`** in the `.env` file.
 
-### 2. Execution Flows (Production vs. Local)
-
-#### A. Production Run Flow
-In production, the data processing pipeline is serverless and orchestrated inside AWS:
-1. **Raw Source Logs**: Transactional CSV files are written to the landing S3 directory (`s3://validata-datalake/raw/`).
-2. **AWS Glue ETL**: Run PySpark Glue jobs `01_extract_raw_data.py` through `04_validation_engine.py` to extract, clean, deduplicate, and perform the full outer-join reconciliation.
-3. **Snowflake Ingestion**: Run `05_load_to_snowflake.py` to bulk load the curated parquets into the warehouse `VALIDATION_RESULTS` table.
-4. **AI Observability**: Run `06_ai_anomaly_explanation.py` to trigger LLM analysis and save explanations back into Snowflake.
-
-#### B. Local Simulation Flow (Reconciliation Script Tool)
-To test reconciliation, Snowflake uploads, and AI analysis locally without needing PySpark or AWS, use the local reconciliation script:
+### 2. Start Backend API
 ```powershell
 cd backend
-# 1. Activate virtual environment
-.\venv\Scripts\Activate.ps1
-
-# 2. Run the local reconciliation pipeline tool
-# To run full pipeline with default test data (Upload to Snowflake + Google Gemini AI):
-python scripts/run_reconciliation.py --legacy ../sample_data/test_legacy_transactions.csv --new ../sample_data/test_new_system_transactions.csv
-
-# OR to run in offline / mock mode:
-python scripts/run_reconciliation.py --local-only --legacy ../sample_data/test_legacy_transactions.csv --new ../sample_data/test_new_system_transactions.csv
-
-# OR to test custom files offline:
-python scripts/run_reconciliation.py --legacy path/to/legacy.csv --new path/to/new.csv --local-only
-```
-*This tool cleans and standardizes data fields, reconciles records via a full outer-join, and either pushes them to Snowflake + Gemini or exports local CSV and Markdown reports (under `sample_data/`).*
-
-### 3. Start the Backend API
-Navigate to the `backend/` folder, activate the virtual environment, install requirements, and boot up the server:
-```powershell
-cd backend
-# Create environment (if not already done)
 python -m venv venv
-# Activate environment
 venv\Scripts\Activate.ps1
-# Install dependencies
 pip install -r requirements.txt
-# Run the FastAPI server (Port 8000)
 python -m uvicorn main:app --reload --port 8000
 ```
-Verify backend health: `http://localhost:8000/health`.
+Verify: `http://localhost:8000/health`
 
-### 4. Start the Frontend Dashboard
-Navigate to the `frontend/` folder, install Node dependencies, and run the Vite dev server:
+### 3. Start Frontend Dashboard
 ```powershell
 cd frontend
-# Install Node modules
 npm install
-# Run the development server (Port 5173 with proxy to 8000)
 npm run dev
+# Runs on http://localhost:5173 (proxied to backend :8000)
 ```
 
+### 4. Run Local Reconciliation (without AWS/PySpark)
+```powershell
+cd backend
+venv\Scripts\Activate.ps1
+
+# Full pipeline (Snowflake + Gemini AI):
+python scripts/run_reconciliation.py --legacy ../sample_data/test_legacy_transactions.csv --new ../sample_data/test_new_system_transactions.csv
+
+# Offline / mock mode (no cloud calls):
+python scripts/run_reconciliation.py --local-only --legacy ../sample_data/test_legacy_transactions.csv --new ../sample_data/test_new_system_transactions.csv
+```
 
 ---
 
-## 🧪 Testing and Quality Control
+## 🧪 Testing & CI
 
-Unit and API validation tests are isolated within the backend framework and can be run using the local virtual environment:
+Tests are written with **pytest** and run automatically on every push via GitHub Actions (`.github/workflows/pytest.yml`).
 
 ```powershell
-# Run from workspace root using backend venv
-backend\venv\Scripts\python.exe -m pytest backend\tests\
+# Run locally
+cd backend
+venv\Scripts\Activate.ps1
+pytest tests/
 ```
+
+---
+
+## 🛠️ Tech Stack
+
+| Layer | Technology |
+|---|---|
+| ETL / Data Pipeline | AWS Glue, PySpark, AWS S3 |
+| Data Warehouse | Snowflake |
+| IaC | Terraform (AWS + Snowflake providers) |
+| Backend API | Python, FastAPI, Uvicorn |
+| AI / LLM | Google Gemini API |
+| Frontend | React, Vite, TypeScript |
+| CI | GitHub Actions + pytest |

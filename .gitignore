@@ -33,3 +33,9 @@ sample_data/
 *.md
 !README.md
 !backend/runbooks/*.md
+
+# Terraform secrets & local state
+infra/terraform/terraform.tfvars
+infra/terraform/terraform.tfstate
+infra/terraform/terraform.tfstate.backup
+infra/terraform/.terraform/

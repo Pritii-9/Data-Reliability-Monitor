@@ -1,0 +1,28 @@
+# =============================================================
+#  Validata — Terraform Variable Values (EXAMPLE)
+#
+#  1. Copy this file:  cp terraform.tfvars.example terraform.tfvars
+#  2. Fill in your actual values below
+#  3. Run:  terraform init && terraform apply
+#
+#  ⚠️  terraform.tfvars is gitignored — NEVER commit real credentials.
+# =============================================================
+
+# ── Snowflake ─────────────────────────────────────────────────
+snowflake_account     = "your-account-id.ap-southeast-1.aws"   # e.g. ab12345.ap-southeast-1.aws
+snowflake_username    = "YOUR_SNOWFLAKE_ADMIN_USER"
+snowflake_password    = "YOUR_SNOWFLAKE_ADMIN_PASSWORD"
+database_name         = "ValiData_DB"
+warehouse_name        = "COMPUTE_WH"
+service_user_name     = "VALIDATA_SVC_USER"
+service_user_password = "YOUR_SERVICE_ACCOUNT_PASSWORD"
+
+# ── AWS ───────────────────────────────────────────────────────
+aws_region            = "ap-southeast-1"
+aws_access_key_id     = "AKIAIOSFODNN7EXAMPLE"
+aws_secret_access_key = "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
+s3_bucket_name        = "validata-datalake"
+environment           = "dev"
+
+# ── AI ────────────────────────────────────────────────────────
+gemini_api_key        = "YOUR_GOOGLE_GEMINI_API_KEY"
